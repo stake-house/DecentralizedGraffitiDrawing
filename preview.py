@@ -11,9 +11,10 @@ rpl = cv2.imread(cfg['ImagePath'])
 x_offset = int(cfg['XOffset'])
 y_offset = int(cfg['YOffset'])
 overpaint = cfg.getboolean('OverPaint')
+x_res, y_res, _ = rpl.shape
 
 
-def getPixelWall(x, y, width=1000, height=1000):
+def getPixelWall():
     page = requests.get(cfg['GraffitiURL'])
     found = False
     wall_string = ""
@@ -28,7 +29,7 @@ def getPixelWall(x, y, width=1000, height=1000):
             wall_string += line.decode("utf-8").split("var pixels = ", 1)[1]
 
     wall_filled = json.loads(wall_string)
-    wall = np.full((height, width, 3), 255, np.uint8)
+    wall = np.full((1000, 1000, 3), 255, np.uint8)
 
     for pixel in wall_filled:  # fill in pixels which have been set
         col = int(pixel["color"], 16)
@@ -38,15 +39,13 @@ def getPixelWall(x, y, width=1000, height=1000):
     return wall
 
 
-def getFirstPixel(wall):
-    rpl_size = 300
+def getFirstPixel():
     found = False
-    for y in range(rpl_size):
+    for y in range(y_res):
         if found:
             break
-        for x in range(rpl_size):
+        for x in range(x_res):
             if not np.all((wall[x + x_offset][y + y_offset] == rpl[x][y])) and np.all((rpl[x][y] > 5)):
-                # wall[x + offset][y + offset] = rpl[x][y]
                 color = format(rpl[x][y][2], '02x')
                 color += format(rpl[x][y][1], '02x')
                 color += format(rpl[x][y][0], '02x')
@@ -56,10 +55,9 @@ def getFirstPixel(wall):
 
 
 def modify():
-    rpl_size = 300
     count = 0
-    for y in range(rpl_size):
-        for x in range(rpl_size):
+    for y in range(y_res):
+        for x in range(x_res):
             if (not np.all(wall[y + y_offset][x + x_offset] == rpl[y][x])) and np.all((rpl[y][x] > 5)):
                 if (not np.all(wall[y + y_offset][x + x_offset] == 255)) and not overpaint:
                     continue
@@ -70,14 +68,32 @@ def modify():
 
 def show(img, title):
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+
     cv2.imshow(title, img)
+    while (True):
+        c = cv2.waitKey(-1)
+        if c == -1:
+            continue
+        k = chr(c)
+        if k == '+':
+            print("+")
+        elif k == '-':
+            print("-")
+        elif k == 'w':
+            print("w")
+        elif k == 'a':
+            print("a")
+        elif k == 's':
+            print("s")
+        elif k == 'd':
+            print("d")
+        elif c == 27:
+            print("esc")
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    wall = getPixelWall(x_offset, y_offset, 300, 300)
-    #show(wall, "before")
-    getFirstPixel(wall)
+    wall = getPixelWall()
+    getFirstPixel()
     modify()
-    #show(wall, "after")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show(wall, "after")

@@ -3,12 +3,19 @@ import cv2
 import json
 import configparser
 import numpy as np
+import time
+import math
 
+# initialize settings
 cp = configparser.ConfigParser()
 cp.read('settings.ini')
 cfg = cp['rocketpool']
-rpl = cv2.imread(cfg['ImagePath'])
-
+orig = cv2.imread(cfg['ImagePath'])
+rpl = orig
+x_res, y_res, _ = rpl.shape
+x_offset = int(cfg['XOffset'])
+y_offset = int(cfg['YOffset'])
+overpaint = cfg.getboolean('OverPaint')
 
 
 def getPixelWall():
@@ -26,58 +33,110 @@ def getPixelWall():
             wall_string += line.decode("utf-8").split("var pixels = ", 1)[1]
 
     wall_filled = json.loads(wall_string)
-    wall_size = 1000
-    #wall = [[[1, 1, 1] for x in range(wall_size)] for y in range(wall_size)]  # initialize empty, white wall
-    wall = np.ones((wall_size, wall_size, 3), np.float32)
+    wall = np.full((1000, 1000, 3), 255, np.uint8)
 
-    for i in wall_filled:  # fill in pixels which have been set
-        col = int(i["color"], 16)
-        wall[i["y"]][i["x"]][2] = (col >> 16) & 255
-        wall[i["y"]][i["x"]][1] = (col >> 8) & 255
-        wall[i["y"]][i["x"]][0] = col & 255
+    for pixel in wall_filled:  # fill in pixels which have been set
+        col = int(pixel["color"], 16)
+        wall[pixel["y"]][pixel["x"]][2] = (col >> 16) & 255
+        wall[pixel["y"]][pixel["x"]][1] = (col >> 8) & 255
+        wall[pixel["y"]][pixel["x"]][0] = col & 255
     return wall
 
 
-def getFirstPixel(wall):
-    rpl_size = 300
-    offset = int(500 - (rpl_size / 2))
-    found = False
-    for x in range(rpl_size):
-        if found:
-            break
-        for y in range(rpl_size):
-            if not (wall[x + offset][y + offset] == rpl[x][y]).all() and rpl[x][y].all() != 0:
-                wall[x + offset][y + offset] = rpl[x][y] / 255.0
-                color = format(int(wall[x + offset][y + offset][0] * 255), '02x')
-                color += format(int(wall[x + offset][y + offset][1] * 255), '02x')
-                color += format(int(wall[x + offset][y + offset][2] * 255), '02x')
-                print("graffitiwall:" + str(x + offset) + ":" + str(y + offset) + ":#" + color)
-                found = True
-                break
+orig_wall = getPixelWall()
 
 
-def modify(wall):
-    rpl_size = 300
-    offset = int(500 - (rpl_size / 2))
-    rpl = cv2.imread(cfg['ImagePath'])
-    cv2.imshow('rpl', wall)
-    for x in range(rpl_size):
-        for y in range(rpl_size):
-            if not (wall[x + offset][y + offset] == rpl[x][y]).all() and rpl[x][y].all() != 0:
-                wall[x + offset][y + offset] = rpl[x][y] / 255.0
+def update():
+    global wall
+    wall = orig_wall.copy()
+    r = rpl[max(0, -1 * y_offset): 1000 - y_offset, max(0, -1 * x_offset): 1000 - x_offset]
+    w = wall[max(0, y_offset):y_offset + y_res, max(0, x_offset):x_res + x_offset]
+
+    #non_white_pixels_mask = np.any(w != [255, 255, 255], axis=-1)
+    #wall[non_white_pixels_mask] = wall[...,:]
+    #rpl[non_white_pixels_mask] = [255, 255, 255]
+
+    t = np.where(w == [255])
+    print(t)
+    #test = np.where(overpaint or np.argwhere(w == 255), r, w)
+    wall[max(0, y_offset):y_offset + y_res, max(0, x_offset):x_res + x_offset] = np.all(
+        overpaint or w == [255, 255, 255], r, w)
+    #wall[max(0, y_offset):y_offset + y_res, max(0, x_offset):x_res + x_offset] = np.where(
+    #    overpaint or w == [255, 255, 255], r, w)
 
 
-def show(img):
-    #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    cv2.imshow('rpl', img)
-    cv2.waitKey(0)
+def changeSize(x = 0, y = 0):
+    global x_res, y_res, rpl
+    x_res += x
+    y_res += y
+    rpl = cv2.resize(orig, dsize=(x_res, y_res), interpolation=cv2.INTER_CUBIC)
+    update()
+
+
+def changePos(x = 0, y = 0):
+    global x_offset, y_offset
+    x_offset = x_offset + x
+    #if x_offset < -1000:
+    #    x_offset += 2000
+    #if x_offset > 1000:
+    #    x_offset -= 2000
+    x_offset = (x_offset + x) % 1000
+    y_offset = (y_offset + y) % 1000
+    update()
+
+
+def toggleOverpaint():
+    global overpaint
+    overpaint = not overpaint
+    update()
+
+
+def reset():
+    global wall
+    wall = orig_wall
+
+
+def load():
+    update()
+
+
+def show(title):
+    global wall
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    done = False
+    while not done:
+        cv2.imshow(title, wall)
+        c = cv2.waitKey(1)
+        if (c == -1):
+            continue
+        k = chr(c)
+        if k == '+':
+            changeSize(10, 10)
+        elif k == '-':
+            changeSize(-10, -10)
+        elif k == 'w':
+            changePos(0, -10)
+        elif k == 'a':
+            changePos(-10, 0)
+        elif k == 's':
+            changePos(0, 10)
+        elif k == 'd':
+            changePos(10, 0)
+        elif k == 'o':
+            toggleOverpaint()
+        elif k == 'r':
+            reset()
+        elif k == 'l':
+            load()
+        elif k == 't':
+            print("test")
+        elif k == 'q':
+            done = True
+        elif c == 27:
+            done = True
     cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    wall = getPixelWall()
-    getFirstPixel(wall)
-    #show(rpl)
-    show(wall)
-    modify(wall)
-    show(wall)
 
+if __name__ == "__main__":
+    update()
+    show("wall")

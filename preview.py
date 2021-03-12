@@ -7,11 +7,11 @@ import numpy as np
 cp = configparser.ConfigParser()
 cp.read('settings.ini')
 cfg = cp['rocketpool']
-rpl = cv2.imread(cfg['ImagePath'])
+img = cv2.imread(cfg['ImagePath'])
 x_offset = int(cfg['XOffset'])
 y_offset = int(cfg['YOffset'])
 overpaint = cfg.getboolean('OverPaint')
-x_res, y_res, _ = rpl.shape
+x_res, y_res, _ = img.shape
 
 
 def getPixelWall():
@@ -45,10 +45,10 @@ def getFirstPixel():
         if found:
             break
         for x in range(x_res):
-            if not np.all((wall[x + x_offset][y + y_offset] == rpl[x][y])) and np.all((rpl[x][y] > 5)):
-                color = format(rpl[x][y][2], '02x')
-                color += format(rpl[x][y][1], '02x')
-                color += format(rpl[x][y][0], '02x')
+            if not np.all((wall[x + x_offset][y + y_offset] == img[x][y])) and np.all((img[x][y] > 5)):
+                color = format(img[x][y][2], '02x')
+                color += format(img[x][y][1], '02x')
+                color += format(img[x][y][0], '02x')
                 print("graffitiwall:" + str(x + x_offset) + ":" + str(y + y_offset) + ":#" + color)
                 found = True
                 break
@@ -58,11 +58,11 @@ def modify():
     count = 0
     for y in range(y_res):
         for x in range(x_res):
-            if (not np.all(wall[y + y_offset][x + x_offset] == rpl[y][x])) and np.all((rpl[y][x] > 5)):
+            if (not np.all(wall[y + y_offset][x + x_offset] == img[y][x])) and np.all((img[y][x] > 5)):
                 if (not np.all(wall[y + y_offset][x + x_offset] == 255)) and not overpaint:
                     continue
                 count += 1
-                wall[y + y_offset][x + x_offset] = rpl[y][x]
+                wall[y + y_offset][x + x_offset] = img[y][x]
     print(str(count) + " todo!")
 
 

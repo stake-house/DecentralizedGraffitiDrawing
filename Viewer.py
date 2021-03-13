@@ -29,42 +29,36 @@ def getPixelWallData():
     return json.loads(wall_string)
 
 
+def saveSettings():
+    config['GraffitiConfig']['xres'] = str(x_res)
+    config['GraffitiConfig']['yres'] = str(y_res)
+    config['GraffitiConfig']['xoffset'] = str(x_offset)
+    config['GraffitiConfig']['yoffset'] = str(y_offset)
+    config['GraffitiConfig']['overpaint'] = str(overpaint)
+    config['GraffitiConfig']['interpolation'] = str(int_mode)
+    with open('settings.ini', 'w') as cfgfile:
+        config.write(cfgfile)
+    print('saved')
+
+
 def paintWall():
-    global count
-    count = 0
     for pixel in wall_data:
         new_pixel = tuple(int(pixel["color"][i:i+2], 16) for i in (4, 2, 0))
-        if np.any(wall[pixel["y"]][pixel["x"]] != new_pixel) and np.any(wall[pixel["y"]][pixel["x"]] != 255):
-            count += 1
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 
 def paintImage():
-    global wall, img
+    global wall, img, count
     if hide:
         return
-    #o = np.sum(img[..., 3] != 255)
-    #print(o)
-
     mask = img[..., 3] != 0
+    wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
+    # This looks too complicated. If you know how to do this better, feel free to improve
+    same = np.all(img[..., :3] == wall_part, axis=-1)
+    count = np.sum(~(same + ~mask))
 
-    w = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
-
-    #mask2 = np.array([[[x, x, x] for x in y] for y in mask])
     mask2 = np.repeat(mask[..., np.newaxis], 3, axis=2)
-    np.copyto(w, img[..., :3], where=mask2)
-
-    #cv2.imshow("test", w)
-    #cv2.waitKey(0)
-
-    #alpha = img[..., 3] / 255.0
-    #alpha2 = np.array([[[x, x, x] for x in y] for y in alpha])
-
-    #foreground = cv2.multiply(alpha2, img[..., :3].astype(float)).astype(np.uint8)
-    #background = cv2.multiply(1.0 - alpha2, wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res].astype(float)).astype(np.uint8)
-
-    #out = cv2.add(foreground, background)
-    #wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res] = out
+    np.copyto(wall_part, img[..., :3], where=mask2)
 
 
 def repaint():
@@ -88,11 +82,22 @@ def changeSize(x = 0, y = 0):
         return
     x_res = x_new
     y_res = y_new
-    if cfg["interpolation"] not in interpolation_modes:
-        print ("unknown interpolation mode: " + cfg["interpolation"])
-        return
-    img = cv2.resize(orig_img, dsize=(x_res, y_res), interpolation=interpolation_modes[cfg["interpolation"]])
+    img = cv2.resize(orig_img, dsize=(x_res, y_res), interpolation=interpolation_modes[int_mode])
     repaint()
+
+
+def nextInterpolationMode():
+    global int_mode
+    found = False
+    int_before = int_mode
+    for key in interpolation_modes.keys():
+        if found:
+            int_mode = key
+            break
+        found = key == int_mode
+    if int_before == int_mode:
+        int_mode = next(iter(interpolation_modes))
+    changeSize()
 
 
 def changePos(x = 0, y = 0):
@@ -121,7 +126,7 @@ def show(title):
     while not done:
         cv2.imshow(title, wall)
         c = cv2.waitKey(1)
-        if (c == -1):
+        if c == -1:
             continue
         k = chr(c)
         if k == '+':
@@ -140,33 +145,38 @@ def show(title):
             toggleOverpaint()
         elif k == 'h':
             toggleHide()
+        elif k == 'i':
+            nextInterpolationMode()
         elif k == 'c':
             print("Need to draw " + str(count) + " Pixels currently.")
-        elif k == 'q':
-            done = True
-        elif c == 27:
+        elif k == 'f':  # c == 19 to ctrl + s, but for qt backend only ?
+            saveSettings()
+        elif k == 'q' or c == 27:   # esc-key
             done = True
     cv2.destroyAllWindows()
 
 
 interpolation_modes = {
-    "lanc": cv2.INTER_LANCZOS4,
-    "area": cv2.INTER_AREA,
-    "cube": cv2.INTER_CUBIC,
     "near": cv2.INTER_NEAREST,
-    "bits": cv2.INTER_BITS,
     "lin": cv2.INTER_LINEAR,
+    "cube": cv2.INTER_CUBIC,
+    "area": cv2.INTER_AREA,
+    "lanc4": cv2.INTER_LANCZOS4,
+    "lin_ex": cv2.INTER_LINEAR_EXACT,
+    # "max": cv2.INTER_MAX,
+    # "warp_fill": cv2.WARP_FILL_OUTLIERS,
+    # "warp_inv": cv2.WARP_INVERSE_MAP,
      }
 
+
 if __name__ == "__main__":
-    cp = configparser.ConfigParser()
-    cp.read('settings.ini')
-    cfg = cp['GraffitiConfig']
+    config = configparser.ConfigParser()
+    config.read('settings.ini')
+    cfg = config['GraffitiConfig']
     orig_img = cv2.imread(cfg['ImagePath'], cv2.IMREAD_UNCHANGED)
-    x_res, y_res, channels = orig_img.shape
-    #if channels == 4:
-        # set hidden pixels to white
-        #orig_img[orig_img[:, :, 3] == 0] = 0
+    x_res = int(cfg['XRes'])
+    y_res = int(cfg['YRes'])
+    _, _, channels = orig_img.shape
     img = orig_img
     x_offset = min(1000 - x_res, int(cfg['XOffset']))
     y_offset = min(1000 - y_res, int(cfg['YOffset']))
@@ -174,6 +184,10 @@ if __name__ == "__main__":
     wall_data = getPixelWallData()
     orig_wall = np.full((1000, 1000, 3), 255, np.uint8)
     hide = False
+    int_mode = cfg["interpolation"]
+    if int_mode not in interpolation_modes:
+        print("unknown interpolation mode: " + cfg["interpolation"])
+        exit(1)
 
-    repaint()
+    changeSize()
     show("Beaconcha.in Graffitiwall (" + cfg['network'] + ")")

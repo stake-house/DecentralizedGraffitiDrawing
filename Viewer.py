@@ -43,7 +43,7 @@ def saveSettings():
 
 def paintWall():
     for pixel in wall_data:
-        new_pixel = tuple(int(pixel["color"][i:i+2], 16) for i in (4, 2, 0))
+        new_pixel = tuple(int(pixel["color"][i:i+2], 16) for i in (4, 2, 0))    # opencv wants pixels in BGR
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 
@@ -55,7 +55,8 @@ def paintImage():
     wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
     # This looks too complicated. If you know how to do this better, feel free to improve
     same = np.all(img[..., :3] == wall_part, axis=-1)
-    count = np.sum(~(same + ~mask))
+    need_to_set = ~(same + ~mask)
+    count = np.sum(need_to_set)
 
     mask2 = np.repeat(mask[..., np.newaxis], 3, axis=2)
     np.copyto(wall_part, img[..., :3], where=mask2)

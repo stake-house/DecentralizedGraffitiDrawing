@@ -1,4 +1,5 @@
 import argparse
+import base64
 import configparser
 
 import cv2
@@ -146,15 +147,20 @@ if __name__ == "__main__":
     parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
                         help='pyrmont or mainnet (default: mainnet)')
     parser.add_argument('--out-dir', default='.', help='out location of the generated graffiti_file')
-    parser.add_argument('--validator-dir', required=True, help='location of your validator keys')
+    parser.add_argument('--validator-dir', required=True, help='location of your validator public keys (not used for prysm)')
     # TODO add config for client's ip and port
+    args = parser.parse_args()
 
     # CHEK same for all clients ? correct ip ?
     infura_ip = "https://eth2-beacon-pyrmont.infura.io/"
-    local_ip = "http://127.0.0.1:5052/"
-    sub_head = "eth/v1/beacon/headers/head"
-    sub_proposals = "eth/v1/validator/duties/proposer/"
-    args = parser.parse_args()
+    if args.client == "prysm":
+        local_ip = "http://127.0.0.1:3500/"
+        sub_proposals = "eth/v1alpha1/validator/duties"
+        sub_head = "eth/v1alpha1/beacon/chainhead"
+    else:
+        local_ip = "http://127.0.0.1:5052/"
+        sub_head = "eth/v1/beacon/headers/head"
+        sub_proposals = "eth/v1/validator/duties/proposer/"
 
     # debug
     chosen_ip = local_ip
@@ -182,6 +188,7 @@ if __name__ == "__main__":
         img = cv2.cvtColor(resized, cv2.COLOR_BGRA2RGBA)
 
     validators = set()
+    wait_time = 12 * 32   # once per epoch
     while True:
         if not os.path.isdir(args.validator_dir):
             print("invalid validator path: " + args.validator_dir)
@@ -194,26 +201,63 @@ if __name__ == "__main__":
                 print(element)
         validators = set(new_folders)
 
-        res = requests.get(chosen_ip + sub_head, auth=(user, pas)).json()
-        cur_slot = int(res["data"]["header"]["message"]["slot"])
-        wait_time = 12 * (32 - (cur_slot % 32))    # lh can't look into the future, we'll need to time the first block
-        epoch = int(cur_slot / 32)
-        # print("slot: " + str(cur_slot) + " [" + str(cur_slot % 32) + "/32], epoch: " + str(epoch))
-        if args.client != "lighthouse":
-            epoch += 1
-        res2 = requests.get(chosen_ip + sub_proposals + str(epoch), auth=(user, pas))
-        if res2.status_code != 200:
-            print("can't reach beacon, error " + str(res2.status_code))
-            print(res2.json())
-            time.sleep(wait_time)
-            continue
-        arr = res2.json()["data"]
-        for duty in arr:
-            if duty["pubkey"] in validators:
-                wall = getPixelWallData()
-                graf = "graffitiwall:" + getPixel()
-                print("[" + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "] " + \
-                    duty["validator_index"] + " proposing on slot " + duty["slot"] + ": " + graf)
-                with open(args.out_dir + 'graffiti_file.txt', 'w') as f:
-                    f.write("default: " + graf)
+        if args.client == "lighthouse" or chosen_ip == infura_ip:
+            res = requests.get(chosen_ip + sub_head, auth=(user, pas)).json()
+            cur_slot = int(res["data"]["header"]["message"]["slot"])
+            wait_time = 12 * (32 - (cur_slot % 32))    # lh can't look into the future, we'll need to time the first block
+            epoch = int(cur_slot / 32)
+            print("slot: " + str(cur_slot) + " [" + str(cur_slot % 32) + "/32], epoch: " + str(epoch))
+            duty_request = chosen_ip + sub_proposals + str(epoch)
+            res2 = requests.get(duty_request, auth=(user, pas))
+            if res2.status_code != 200:
+                print("can't reach beacon, error " + str(res2.status_code))
+                print(res2)
+                print(res2.json())
+                time.sleep(wait_time)
+                continue
+            arr = res2.json()["data"]
+            for duty in arr:
+                if duty["pubkey"] in validators:
+                    wall = getPixelWallData()
+                    graf = "graffitiwall:" + getPixel()
+                    print("[" + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "] " + \
+                        duty["validator_index"] + " proposing on slot " + duty["slot"] + ": " + graf)
+                    with open(args.out_dir + 'graffiti_file.txt', 'w') as f:
+                        f.write("default: " + graf)
+        elif args.client == "prysm":
+            e_res = requests.get(chosen_ip + sub_head)
+            if e_res.status_code != 200:
+                print(e_res)
+                print(e_res.json())
+                time.sleep(wait_time)
+                continue
+            cur_epoch = int(e_res.json()["headEpoch"])
+            val_list = ""
+            for key in validators:
+                val_list += '&publicKeys='
+                b64 = base64.b64encode(bytes.fromhex(key[2:])).decode()
+                b64 = b64.replace("+", "%2b")
+                b64 = b64.replace("/", "%2f")
+                val_list += b64
+
+            url = local_ip + sub_proposals + "?epoch=" + str(cur_epoch) + val_list
+            #print(url)
+            res = requests.get(url)
+            if res.status_code != 200:
+                print(res)
+                print(res.json())
+                print(b64)
+                time.sleep(wait_time)
+                continue
+            duties = res.json()["nextEpochDuties"]
+            #print("success! " + str(len(duties)))
+            for duty in duties:
+                if len(duty["proposerSlots"]) != 0:
+                    wall = getPixelWallData()
+                    graf = "graffitiwall:" + getPixel()
+                    print("[" + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "] " + \
+                          str(duty["validator_index"]) + " proposing on slot " + str(duty["proposerSlots"][0]) + ": " + graf)
+                    with open(args.out_dir + 'graffiti_file.yml', 'w') as f:
+                        f.write("default: " + graf)
+            #print("no more blocks")
         time.sleep(wait_time)

@@ -91,7 +91,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Advanced beaconcha.in graffitiwall image drawer.')
     parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
                         help='pyrmont or mainnet (default: mainnet)')
-    parser.add_argument('--out-file', default='./graffiti.txt', help='out location of the generated graffiti_file')
+    parser.add_argument('--out-file', default='./graffiti.txt', help='out location of the generated graffiti file (default: ./graffiti.txt).')
+    parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku'], help='your eth2 client')
     parser.add_argument('--update-wall-time', default=600, help='Interval between graffiti wall updates (default: 600s).')
     parser.add_argument('--update-file-time', default=30, help='Interval between graffiti file updates (default: 30s).')
     args = parser.parse_args()
@@ -108,6 +109,15 @@ if __name__ == "__main__":
     last_wall_update = 0
     last_file_update = 0
     wall = dict()
+    # file formatting
+    pre = ""
+    if args.client != "teku":
+        pre += "default: "
+        if args.client == "prysm":
+            pre += '"'
+    post = ""
+    if args.client == "prysm":
+        post = '"'
     while True:
         now = time.time()
         if last_wall_update + args.update_wall_time < now:
@@ -116,6 +126,6 @@ if __name__ == "__main__":
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
             with open(args.out_file, 'w') as f:
-                f.write("default: " + getPixel())
+                f.write(pre + getPixel() + post)
             last_file_update = now
         time.sleep(10)

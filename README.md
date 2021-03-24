@@ -9,15 +9,38 @@ representing your image on the wall. Then share it with your friends and start d
 
 ## Rocketpool users
 While this tool can be used by any eth2 staker, I want to provide an easy solution for rocketpool beta
-users. Below I'll explain how to setup a docker container that's running along the rocketpool stack.
-It will draw above situation (but on pyrmont). 
+users. There's an explanation below how to setup a docker container that's running along the rocketpool stack.
+Unfortunately it's a large image atm, this could be fixed later. It will draw above situation (but on pyrmont).
 
+1. Create the docker image.
+   - If you trust me, you can pull my image from dockerhub:
+   `docker pull ramirond/graffiti && docker image tag ramirond/graffiti rocketpool/graffiti`
+   - To create it yourself, run: `docker build -t rocketpool/graffiti .` (don't miss the `.`)
+2. Edit rocketpool's docker stack to also start your new container.
+   `nano ~/.rocketpool/docker-compose.yml` \
+   Insert this section as another service:
+   ```
+     graffiti:
+       image: rocketpool/graffiti
+       container_name: ${COMPOSE_PROJECT_NAME}_graffiti
+       restart: unless-stopped
+       volumes:
+         - ./data:/data
+       networks:
+         - net
+       command: "--network pyrmont --client $VALIDATOR_CLIENT --out-file /data/graffiti.txt"
+       depends_on:
+         - eth2
+   ```
+3. Advise your validator client to load the graffiti from the generated file.
+   - Edit `.rocketpool/chains/eth2/start-validator.sh` with the flags explained [below](#Usage-1).
+   - Or simply use:
+   `cp rocketpool/start-validator.sh ~/.rocketpool/chains/eth2/start-validator.sh`
+4. Restart your rocketpool service.
 
 
 ## Requirements
-You'll need python3 with some libraries. Check [requirements.txt](requirements.txt)
-Python will complain if you don't already have them installed, google if you don't know how to
-do that.
+Install dependencies with `pip install -r requirements.txt`.
 
 ## Viewer
 The viewer loads the current graffitiwall as well as an image. You can move it around or
@@ -48,11 +71,10 @@ Just let the script run in another process (using screen, for example).
 Also don't forget restarting your eth2 validator client with the file specified:
 - [Lighthouse](https://lighthouse-book.sigmaprime.io/graffiti.html#1-using-the---graffiti-file-flag-on-the-validator-client):
   `lighthouse vc --graffiti-file /path/to/your/graffiti.txt`
-  `lighthouse vc --graffiti-file /mnt/ssd/lighthouse/graffiti.txt`
 - [Prysm](https://docs.prylabs.network/docs/prysm-usage/graffiti-file/): 
   `prysm.sh validator --graffiti-file=/path/to/your/graffiti.txt`
 - [Teku](https://docs.teku.consensys.net/en/latest/Reference/CLI/CLI-Syntax/#validators-graffiti-file):
-  `teku vc ----validators-graffiti-file=/path/to/your/graffiti.txt`
+  `teku vc --validators-graffiti-file=/path/to/your/graffiti.txt`
 
 ### Disclaimer
 In theory, it shouldn't be possible for this script to interrupt your staking performance,

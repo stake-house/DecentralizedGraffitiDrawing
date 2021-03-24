@@ -120,13 +120,12 @@ if __name__ == "__main__":
     wall = dict()
     # file formatting
     pre = ""
+    post = ""
     if args.client != "teku":
         pre += "default: "
         if args.client == "prysm":
             pre += '"'
-    post = ""
-    if args.client == "prysm":
-        post = '"'
+            post = '"'
     print("Generating graffitis...")
     while True:
         now = time.time()

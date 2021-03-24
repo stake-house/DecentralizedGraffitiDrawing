@@ -7,16 +7,25 @@ representing your image on the wall. Then share it with your friends and start d
 
 ![Rocketpool](rocketpool/desired.png "Default settings")
 
+
+## Requirements
+You need python3 with some libraries. Install dependencies with `pip install -r requirements.txt`.
+
+
 ## Rocketpool users
 While this tool can be used by any eth2 staker, I want to provide an easy solution for rocketpool beta
-users. There's an explanation below how to setup a docker container that's running along the rocketpool stack.
-Unfortunately it's a large image atm, this could be fixed later. It will draw above situation (but on pyrmont).
+users. It will draw above situation (but on pyrmont).
 
-1. Create the docker image.
+1. **Running the script** \
+   1.1 **Using docker** \
+   If you want to integrate the process into rocketpools docker stack, this is for you.
+   Note that it's a large image atm, this could be fixed later. \
+   1.1.1 Get the docker image
    - If you trust me, you can pull my image from dockerhub:
    `docker pull ramirond/graffiti && docker image tag ramirond/graffiti rocketpool/graffiti`
-   - To create it yourself, run: `docker build -t rocketpool/graffiti .` (don't miss the `.`)
-2. Edit rocketpool's docker stack to also start your new container.
+   - To create it yourself, run: `docker build -t rocketpool/graffiti .` (don't miss the `.`).
+
+    1.1.2 Edit rocketpool's docker stack to also start your new container:
    `nano ~/.rocketpool/docker-compose.yml` \
    Insert this section as another service:
    ```
@@ -32,15 +41,18 @@ Unfortunately it's a large image atm, this could be fixed later. It will draw ab
        depends_on:
          - eth2
    ```
+   
+   1.2 **Without Docker** \
+   If you want to manually start the service and save some resources, you can also run the script
+   alone. Here's how to do it using screen, but you could also use a system service for example.
+   - Start the screen session: `screen -S graffiti`
+   - Run: `python3 Drawer.py --network pyrmont --client <your client> --out-file ~/.rocketpool/data/graffiti.txt`
+
 3. Advise your validator client to load the graffiti from the generated file.
    - Edit `.rocketpool/chains/eth2/start-validator.sh` with the flags explained [below](#Usage-1).
-   - Or simply use:
+   - Or simply do:
    `cp rocketpool/start-validator.sh ~/.rocketpool/chains/eth2/start-validator.sh`
 4. Restart your rocketpool service.
-
-
-## Requirements
-Install dependencies with `pip install -r requirements.txt`.
 
 ## Viewer
 The viewer loads the current graffitiwall as well as an image. You can move it around or

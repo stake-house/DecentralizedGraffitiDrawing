@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import requests
 import time
+import os
 
 
 interpolation_modes = {
@@ -70,7 +71,10 @@ def getPixel():
 def getImage():
     x_res = int(cfg['XRes'])
     y_res = int(cfg['YRes'])
-    orig_img = cv2.imread(cfg['ImagePath'], cv2.IMREAD_UNCHANGED)
+    file = cfg['ImagePath']
+    if not os.path.isabs(file):
+        file = os.path.dirname(os.path.abspath(__file__)) + "/" + os.path.basename(file)
+    orig_img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
     _, _, channels = orig_img.shape
     int_mode = cfg["interpolation"]
     if int_mode not in interpolation_modes:
@@ -91,14 +95,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Advanced beaconcha.in graffitiwall image drawer.')
     parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
                         help='pyrmont or mainnet (default: mainnet)')
-    parser.add_argument('--out-file', default='./graffiti.txt', help='out location of the generated graffiti file (default: ./graffiti.txt).')
-    parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku'], help='your eth2 client')
+    parser.add_argument('--out-file', default='./graffiti.txt', help='Out location of the generated graffiti file (default: ./graffiti.txt).')
+    parser.add_argument('--settings-file', default='./settings.ini', help='Settings file location (default: ./settings.ini).')
+    parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku'], help='your eth2 client.')
     parser.add_argument('--update-wall-time', default=600, help='Interval between graffiti wall updates (default: 600s).')
     parser.add_argument('--update-file-time', default=30, help='Interval between graffiti file updates (default: 30s).')
     args = parser.parse_args()
 
+    if args.client == "nimbus":
+        print("nimbus is not supported!")
+        exit(1)
+
     config = configparser.ConfigParser()
-    config.read('settings.ini')
+    config.read(args.settings_file)
     cfg = config['GraffitiConfig']
     img, x_offset, y_offset = getImage()
 
@@ -118,6 +127,7 @@ if __name__ == "__main__":
     post = ""
     if args.client == "prysm":
         post = '"'
+    print("Generating graffitis...")
     while True:
         now = time.time()
         if last_wall_update + args.update_wall_time < now:

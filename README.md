@@ -5,9 +5,17 @@ This generic tool helps you draw images on the beaconcha.in graffitiwall for
 [mainnet](https://beaconcha.in/graffitiwall). First, use the Viewer to generate a config
 representing your image on the wall. Then share it with your friends and start drawing together!
 
-![Rocketpool](doc/desired.png "Default settings")
+![Rocketpool](rocketpool/desired.png "Default settings")
+
+## Rocketpool users
+While this tool can be used by any eth2 staker, I want to provide an easy solution for rocketpool beta
+users. Below I'll explain how to setup a docker container that's running along the rocketpool stack.
+It will draw above situation (but on pyrmont). 
+
+
+
 ## Requirements
-You'll need python3 with some libraries (like `opencv`, `requests`, ...).
+You'll need python3 with some libraries. Check [requirements.txt](requirements.txt)
 Python will complain if you don't already have them installed, google if you don't know how to
 do that.
 
@@ -32,21 +40,19 @@ and fixes them. It checks all relevant data in defined intervals.
 
 ### Usage
 Check out `python3 Drawer.py --help` for available parameters. You need to specify your client because
-they each expect the graffiti file to be in a specific format.
+they each expect the graffiti file to be in a specific format. \
+Example: `python3 Drawer.py --network pyrmont --client lighthouse --out-file /mnt/ssd/lighthouse/graffiti.txt`
 
 Lighthouse, Teku and Prysm support reading the generated graffiti file, Nimbus isn't supported (yet!).
 Just let the script run in another process (using screen, for example).
 Also don't forget restarting your eth2 validator client with the file specified:
 - [Lighthouse](https://lighthouse-book.sigmaprime.io/graffiti.html#1-using-the---graffiti-file-flag-on-the-validator-client):
   `lighthouse vc --graffiti-file /path/to/your/graffiti.txt`
+  `lighthouse vc --graffiti-file /mnt/ssd/lighthouse/graffiti.txt`
 - [Prysm](https://docs.prylabs.network/docs/prysm-usage/graffiti-file/): 
   `prysm.sh validator --graffiti-file=/path/to/your/graffiti.txt`
 - [Teku](https://docs.teku.consensys.net/en/latest/Reference/CLI/CLI-Syntax/#validators-graffiti-file):
-  `teku vc --validators-graffiti=/path/to/your/graffiti.txt`
-
-## Rocketpool users
-This is WIP. I'll try to integrate the script nicely into rocketpools docker stack so you 
-don't have to worry about graffiti files, client compatibility and other stuff.
+  `teku vc ----validators-graffiti-file=/path/to/your/graffiti.txt`
 
 ### Disclaimer
 In theory, it shouldn't be possible for this script to interrupt your staking performance,

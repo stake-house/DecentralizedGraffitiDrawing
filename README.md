@@ -18,8 +18,7 @@ users. It will draw above situation (but on pyrmont).
 
 1. **Running the script** \
    1.1 **Using docker** \
-   If you want to integrate the process into rocketpools docker stack, this is for you.
-   Note that it's a large image atm, this could be fixed later. \
+   If you want to integrate the process into rocketpools docker stack, this is for you: \
    1.1.1 Get the docker image
    - If you trust me, you can pull my image from dockerhub:
    `docker pull ramirond/graffiti && docker image tag ramirond/graffiti rocketpool/graffiti`

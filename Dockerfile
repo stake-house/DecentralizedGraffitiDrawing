@@ -1,7 +1,7 @@
-FROM python:latest
+FROM python:slim-buster
 
 RUN apt-get update
-RUN apt-get install libgl1-mesa-glx -y
+RUN apt-get install libgl1-mesa-glx libglib2.0-0 -y
 
 COPY rpl.png /graffiti/
 COPY Drawer.py /graffiti/

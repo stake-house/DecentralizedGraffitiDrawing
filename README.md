@@ -88,7 +88,9 @@ and fixes them. You can decide when to update the graffiti wall:
   if there's at least one proposal (which should rarely happen, unless you are running thousands of validators).
   Thus, this approach should save quite some resources. \
   You can
-   - connect to the beaconcha.in api (default) **not yet implemented**
+   - connect to the beaconcha.in api (default) \
+     One issue might be: You can't explore future epochs + the one minute cache. This could lead to missing proposals
+     in the first minute of an epoch. That's up to 5 of 32 slots, or roughly 15%. 
    - connect to your own eth2 node (preferred) **not yet implemented**
    - connect to an infura eth2 node **not yet implemented**
 

@@ -19,15 +19,31 @@ interpolation_modes = {
 }
 
 
+def getProposalsBeaconchain():
+    if args.network == "pyrmont":
+        url = "https://pyrmont.beaconcha.in/api/v1/epoch/latest/blocks"
+    else:
+        url = "https://beaconcha.in/api/v1/epoch/latest/blocks"
+    try:
+        page = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        print("can't reach Beaconcha.in: " + e)
+        return
+    if page.status_code != 200:
+        print("status code: " + str(page.status_code))
+        return
+    p = set()
+    for block in page.json()['data']:
+        p.add(block['proposer'])
+    return p
+
+
 def getPixelWallData():
     global wall
-    if args.network == "mainnet":
-        url = "https://beaconcha.in/api/v1/graffitiwall"
-    elif args.network == "pyrmont":
+    if args.network == "pyrmont":
         url = "https://pyrmont.beaconcha.in/api/v1/graffitiwall"
     else:
-        print("unknown network!")
-        return
+        url = "https://beaconcha.in/api/v1/graffitiwall"
     try:
         page = requests.get(url)
     except requests.exceptions.RequestException as e:
@@ -93,7 +109,7 @@ def getImage():
 
 
 def setNimbusGraffiti(graffiti):
-    url = "http://" + args.eth2_url + ":" + args.eth2_port + "/jsonrpc"
+    url = "http://" + args.nimbus_rpc_url + ":" + str(args.nimbus_rpc_port) + "/jsonrpc"
     headers = {'content-type': 'application/json'}
 
     payload = {
@@ -107,6 +123,36 @@ def setNimbusGraffiti(graffiti):
     except requests.exceptions.RequestException as e:
         return False
     return 'result' in response
+
+
+def updateValidators():
+    global validators
+    _, new_folders, _ = next(os.walk(args.validator_dir))
+    diff = set(new_folders) - validators
+    if len(diff) != 0:
+        print("loading " + str(len(diff)) + " new keys: ")
+        for element in diff:
+            print(element)
+    validators = set(new_folders)
+
+
+def getWaitTime():
+    if args.network == "pyrmont":
+        url = "https://pyrmont.beaconcha.in/api/v1/block/latest"
+    else:
+        url = "https://beaconcha.in/api/v1/block/latest"
+    try:
+        page = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        print("can't reach Beaconcha.in: " + e)
+        return
+    if page.status_code != 200:
+        print("status code: " + str(page.status_code))
+        return
+    slot = page.json()['data']['slot']
+    print("slot in epoch: " + str(slot % 32))
+    w = 12 * (32 - (slot % 32))
+    return w
 
 
 if __name__ == "__main__":
@@ -130,6 +176,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if args.update_mode == 'on-proposal' and not os.path.isdir(args.validator_dir):
+        print("invalid validator path: " + args.validator_dir)
+        exit(0)
+
     config = configparser.ConfigParser()
     config.read(args.settings_file)
     cfg = config['GraffitiConfig']
@@ -150,19 +200,33 @@ if __name__ == "__main__":
         if args.client == "prysm":
             pre += '"'
             post = '"'
+
+    validators = set()
+    # Start the work!
     print("Generating graffitis...")
     while True:
-        now = time.time()
-        if last_wall_update + args.update_wall_time < now:
-            getPixelWallData()
-            draw_pixels = updateDrawPixels()
-            last_wall_update = now
-        if last_file_update + args.update_file_time < now:
-            if args.client == "nimbus":
-                if not setNimbusGraffiti(getPixel()):
-                    print("error setting nimbus graffiti")
-            else:
-                with open(args.out_file, 'w') as f:
-                    f.write(pre + getPixel() + post)
-            last_file_update = now
-        time.sleep(10)
+        if args.update_mode == 'interval':
+            now = time.time()
+            if last_wall_update + args.update_wall_time < now:
+                getPixelWallData()
+                draw_pixels = updateDrawPixels()
+                last_wall_update = now
+            if last_file_update + args.update_file_time < now:
+                if args.client == "nimbus":
+                    if not setNimbusGraffiti(getPixel()):
+                        print("error setting nimbus graffiti")
+                else:
+                    with open(args.out_file, 'w') as f:
+                        f.write(pre + getPixel() + post)
+                last_file_update = now
+            time.sleep(10)
+        elif args.update_mode == 'on-proposal':
+            # 1. load the keys (could be more/others since last time)
+            updateValidators()
+            # 2. get current proposers
+            proposers = getProposalsBeaconchain()
+            # 3. check if we can propose
+            if len(proposers.intersection(validators)) != 0:
+                print(len(proposers.intersection(validators)))
+            time.sleep(getWaitTime())
+            continue

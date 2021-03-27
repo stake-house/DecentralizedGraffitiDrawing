@@ -116,10 +116,18 @@ if __name__ == "__main__":
     parser.add_argument('--out-file', default='./graffiti.txt', help='Out location of the generated graffiti file (default: ./graffiti.txt).')
     parser.add_argument('--settings-file', default='./settings.ini', help='Settings file location (default: ./settings.ini).')
     parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku', 'nimbus'], help='your eth2 client.')
-    parser.add_argument('--eth2-url', default='localhost', help='your eth2 client url.')
-    parser.add_argument('--eth2-port', default=9190, help='your eth2 client port.')
+    parser.add_argument('--nimbus-rpc-url', default='localhost', help='Your nimbus client RPC url (default: localhost).')
+    parser.add_argument('--nimbus-rpc-port', default=9190, help='Your nimbus client RPC port (default: 9190).')
+    # update mode
+    # TODO move this to settings file ?
+    parser.add_argument('--update-mode', default='interval', choices=['interval', 'on-proposal'], help='Select when to update pixel data (default: interval).')
     parser.add_argument('--update-wall-time', default=600, help='Interval between graffiti wall updates (default: 600s).')
     parser.add_argument('--update-file-time', default=30, help='Interval between graffiti file updates (default: 30s).')
+    parser.add_argument('--validator-dir', required=True, help='Your eth2 validator key directory.')
+    parser.add_argument('--infura-id', help='Your eth2 infura project id.')
+    parser.add_argument('--eth2-url', help='Your eth2 node url.')  # assumes client selected by --client
+    parser.add_argument('--eth2-port', help='Your eth2 node port.')
+
     args = parser.parse_args()
 
     config = configparser.ConfigParser()

@@ -79,7 +79,18 @@ To use your own file instead, edit `settings.ini` accordingly.
 
 ## Drawer
 This component performs the decentralized drawing. The script identifies invalid pixels
-and fixes them. It checks all relevant data in defined intervals.
+and fixes them. You can decide when to update the graffiti wall:
+- **in defined intervals** (default) \
+  This is easiest to set up (and implement). Just generate a new graffiti regularly, whether it'll be used or not.
+  If you don't need to optimize performance, this should be fine.
+- **only on block proposals** \
+  Each epoch, the script checks which of your validators are chosen to propose a block. It's only updating pixel data
+  if there's at least one proposal (which should rarely happen, unless you are running thousands of validators).
+  Thus, this approach should save quite some resources. \
+  You can
+   - connect to the beaconcha.in api (default) **not yet implemented**
+   - connect to your own eth2 node (preferred) **not yet implemented**
+   - connect to an infura eth2 node **not yet implemented**
 
 ### Usage
 Check out `python3 Drawer.py --help` for available parameters. You need to specify your client because

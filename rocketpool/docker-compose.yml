@@ -110,7 +110,7 @@ services:
       - ./data:/data
     networks:
       - net
-    command: "--network pyrmont --client $VALIDATOR_CLIENT --out-file /data/graffiti.txt"
+    command: "--network pyrmont --client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"
     depends_on:
       - eth2
 networks:

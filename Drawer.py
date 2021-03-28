@@ -8,6 +8,7 @@ import requests
 import time
 import os
 
+import lib.beaconPullHelper as bph
 
 interpolation_modes = {
     "near": cv2.INTER_NEAREST,
@@ -17,25 +18,6 @@ interpolation_modes = {
     "lanc4": cv2.INTER_LANCZOS4,
     "lin_ex": cv2.INTER_LINEAR_EXACT,
 }
-
-
-def getProposalsBeaconchain():
-    if args.network == "pyrmont":
-        url = "https://pyrmont.beaconcha.in/api/v1/epoch/latest/blocks"
-    else:
-        url = "https://beaconcha.in/api/v1/epoch/latest/blocks"
-    try:
-        page = requests.get(url)
-    except requests.exceptions.RequestException as e:
-        print("can't reach Beaconcha.in: " + e)
-        return
-    if page.status_code != 200:
-        print("status code: " + str(page.status_code))
-        return
-    p = set()
-    for block in page.json()['data']:
-        p.add(block['proposer'])
-    return p
 
 
 def getPixelWallData():
@@ -171,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--update-file-time', default=30, help='Interval between graffiti file updates (default: 30s).')
     parser.add_argument('--validator-dir', required=True, help='Your eth2 validator key directory.')
     parser.add_argument('--infura-id', help='Your eth2 infura project id.')
+    parser.add_argument('--infura-key', help='Your eth2 infura project key.')
     parser.add_argument('--eth2-url', help='Your eth2 node url.')  # assumes client selected by --client
     parser.add_argument('--eth2-port', help='Your eth2 node port.')
 
@@ -224,7 +207,13 @@ if __name__ == "__main__":
             # 1. load the keys (could be more/others since last time)
             updateValidators()
             # 2. get current proposers
-            proposers = getProposalsBeaconchain()
+            # TODO use some sort of favoring
+            # 2.1 beaconcha.in
+            proposers = bph.getProposalsBeaconchain(args.network)
+            # 2.2 infura
+            if args.infura_id and args.infura_key:
+                proposers = bph.getProposalsInfura(args.network, args.infura_id, args.infura_key)
+
             # 3. check if we can propose
             if len(proposers.intersection(validators)) != 0:
                 print(len(proposers.intersection(validators)))

@@ -213,6 +213,8 @@ if __name__ == "__main__":
             # 2.2 infura
             if args.infura_id and args.infura_key:
                 proposers = bph.getProposalsInfura(args.network, args.infura_id, args.infura_key)
+            # 2.3 Node
+            bph.getProposalsNimbus("localhost", 9190)
 
             # 3. check if we can propose
             if len(proposers.intersection(validators)) != 0:

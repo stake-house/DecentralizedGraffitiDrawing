@@ -84,15 +84,17 @@ and fixes them. You can decide when to update the graffiti wall:
   This is easiest to set up (and implement). Just generate a new graffiti regularly, whether it'll be used or not.
   If you don't need to optimize performance, this should be fine.
 - **only on block proposals** \
-  Each epoch, the script checks which of your validators are chosen to propose a block. It's only updating pixel data
+  Each epoch*, the script checks which of your validators are chosen to propose a block. It's only updating pixel data
   if there's at least one proposal (which should rarely happen, unless you are running thousands of validators).
-  Thus, this approach should save quite some resources. \
+  Thus, this approach should save quite some resources compared to interval-based updating. \
+  (* Currently, the time of a new epoch is just estimated (with the assumption of one block every 12s). However, this
+  might be wrong; Listening on the event streams is a better way. Implement this next.) \
   You can
    - connect to the beaconcha.in api (default) \
      One issue might be: You can't explore future epochs + the one minute cache. This could lead to missing proposals
      in the first minute of an epoch. That's up to 5 of 32 slots, or roughly 15%. 
-   - connect to your own eth2 node (preferred) **not yet implemented**
-   - connect to an infura eth2 node **not yet implemented**
+   - connect to your own eth2 node (preferred)
+   - connect to an infura eth2 node
 
 ### Usage
 Check out `python3 Drawer.py --help` for available parameters. You need to specify your client because

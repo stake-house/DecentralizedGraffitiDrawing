@@ -41,8 +41,8 @@ def getPixelWallData():
     # filter visible area
     wall = dict()
     for pixel in w:
-        if y_offset <= pixel["y"] < y_offset + int(cfg['YRes']) and \
-                x_offset <= pixel["x"] < x_offset + int(cfg['XRes']):
+        if y_offset <= pixel["y"] < y_offset + y_res and \
+                x_offset <= pixel["x"] < x_offset + x_res:
             wall[pixel["y"] - y_offset, pixel["x"] - x_offset] = tuple(int(pixel["color"][i:i+2], 16) for i in (0, 2, 4))
 
 
@@ -70,13 +70,16 @@ def getPixel():
 
 
 def getImage():
-    x_res = int(cfg['XRes'])
-    y_res = int(cfg['YRes'])
+    global x_res, y_res
     file = cfg['ImagePath']
     if not os.path.isabs(file):
-        file = os.path.dirname(os.path.abspath(__file__)) + "/" + os.path.basename(file)
+        file = os.path.dirname(os.path.abspath(__file__)) + "/" + file
     orig_img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
-    _, _, channels = orig_img.shape
+    y_res, x_res, channels = orig_img.shape
+    if cfg['XRes'] != "original":
+        x_res = int(cfg['XRes'])
+    if cfg['YRes'] != "original":
+        y_res = int(cfg['YRes'])
     int_mode = cfg["interpolation"]
     if int_mode not in interpolation_modes:
         print("unknown interpolation mode: " + cfg["interpolation"])
@@ -93,7 +96,7 @@ def getImage():
 
 
 def setNimbusGraffiti(graffiti):
-    url = "http://" + args.eth2_url + ":" + args.eth2_port + "/jsonrpc"
+    url = "http://" + args.eth2_url + ":" + str(args.eth2_port) + "/jsonrpc"
     headers = {'content-type': 'application/json'}
 
     payload = {

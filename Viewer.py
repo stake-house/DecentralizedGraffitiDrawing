@@ -30,8 +30,15 @@ def getPixelWallData():
 
 
 def saveSettings():
-    config['GraffitiConfig']['xres'] = str(x_res)
-    config['GraffitiConfig']['yres'] = str(y_res)
+    if cfg['xres'] == 'original':
+        config['GraffitiConfig']['xres'] = 'original'
+    else:
+        config['GraffitiConfig']['xres'] = str(x_res)
+    if cfg['yres'] == 'original':
+        config['GraffitiConfig']['yres'] = 'original'
+    else:
+        config['GraffitiConfig']['yres'] = str(y_res)
+    config['GraffitiConfig']['scale'] = str(scale)
     config['GraffitiConfig']['xoffset'] = str(x_offset)
     config['GraffitiConfig']['yoffset'] = str(y_offset)
     config['GraffitiConfig']['overpaint'] = str(overpaint)
@@ -73,16 +80,19 @@ def repaint():
         paintWall()
 
 
-def changeSize(x = 0, y = 0):
-    global x_res, y_res, img
+def changeSize(scale_percent=0):
+    global x_res, y_res, img, scale
 
-    x_new = max(1, min(x_res + x, 1000 - x_offset))
-    y_new = max(1, min(y_res + y, 1000 - y_offset))
-    if x_res - y_res != x_new - y_new:
+    width = int(x_res * (100 + scale_percent) / 100)
+    height = int(y_res * (100 + scale_percent) / 100)
+
+    if width + x_offset > 1000 or \
+            height + y_offset > 1000:
         # seems like one border reached, we don't want to change aspect ratio
         return
-    x_res = x_new
-    y_res = y_new
+    x_res = width
+    y_res = height
+    scale += int(scale_percent * scale / 100)
     img = cv2.resize(orig_img, dsize=(x_res, y_res), interpolation=interpolation_modes[int_mode])
     repaint()
 
@@ -131,9 +141,9 @@ def show(title):
             continue
         k = chr(c)
         if k == '+':
-            changeSize(10, 10)
+            changeSize(10)
         elif k == '-':
-            changeSize(-10, -10)
+            changeSize(-10)
         elif k == 'w':
             changePos(0, -10)
         elif k == 'a':
@@ -164,10 +174,7 @@ interpolation_modes = {
     "area": cv2.INTER_AREA,
     "lanc4": cv2.INTER_LANCZOS4,
     "lin_ex": cv2.INTER_LINEAR_EXACT,
-    # "max": cv2.INTER_MAX,
-    # "warp_fill": cv2.WARP_FILL_OUTLIERS,
-    # "warp_inv": cv2.WARP_INVERSE_MAP,
-     }
+    }
 
 
 if __name__ == "__main__":
@@ -175,9 +182,15 @@ if __name__ == "__main__":
     config.read('settings.ini')
     cfg = config['GraffitiConfig']
     orig_img = cv2.imread(cfg['ImagePath'], cv2.IMREAD_UNCHANGED)
-    x_res = int(cfg['XRes'])
-    y_res = int(cfg['YRes'])
-    _, _, channels = orig_img.shape
+    y_res, x_res, channels = orig_img.shape
+    orig_x = x_res
+    scale = int(cfg['scale'])
+    x_res = int(x_res * (scale / 100))
+    y_res = int(y_res * (scale / 100))
+    if cfg['XRes'] != "original":
+        x_res = int(cfg['XRes'])
+    if cfg['YRes'] != "original":
+        y_res = int(cfg['YRes'])
     img = orig_img
     x_offset = min(1000 - x_res, int(cfg['XOffset']))
     y_offset = min(1000 - y_res, int(cfg['YOffset']))

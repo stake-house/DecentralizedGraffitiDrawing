@@ -76,10 +76,15 @@ def getImage():
         file = os.path.dirname(os.path.abspath(__file__)) + "/" + file
     orig_img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
     y_res, x_res, channels = orig_img.shape
+    scale = int(cfg['scale'])
     if cfg['XRes'] != "original":
         x_res = int(cfg['XRes'])
+    else:
+        x_res = int(x_res * (scale / 100))
     if cfg['YRes'] != "original":
         y_res = int(cfg['YRes'])
+    else:
+        y_res = int(y_res * (scale / 100))
     int_mode = cfg["interpolation"]
     if int_mode not in interpolation_modes:
         print("unknown interpolation mode: " + cfg["interpolation"])

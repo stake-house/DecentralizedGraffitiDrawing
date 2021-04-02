@@ -183,7 +183,6 @@ if __name__ == "__main__":
     cfg = config['GraffitiConfig']
     orig_img = cv2.imread(cfg['ImagePath'], cv2.IMREAD_UNCHANGED)
     y_res, x_res, channels = orig_img.shape
-    orig_x = x_res
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))
     y_res = int(y_res * (scale / 100))

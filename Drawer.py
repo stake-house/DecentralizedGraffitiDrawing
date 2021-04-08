@@ -30,8 +30,8 @@ def getPixelWallData():
         return
     try:
         page = requests.get(url)
-    except requests.exceptions.RequestException as e:
-        print("can't reach graffitiwall: " + e)
+    except requests.exceptions.RequestException as _:
+        print("can't reach graffitiwall")
         return
     if page.status_code != 200:
         print("error fetching wall")

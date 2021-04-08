@@ -58,26 +58,34 @@ def paintImage():
     global wall, img, count
     if hide:
         return
-    mask = img[..., 3] != 0
+    visible = img[..., 3] != 0
     wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
     # This looks too complicated. If you know how to do this better, feel free to improve
     same = np.all(img[..., :3] == wall_part, axis=-1)
-    need_to_set = ~(same + ~mask)
+    need_to_set = ~(same + ~visible)
     count = np.sum(need_to_set)
 
-    mask2 = np.repeat(mask[..., np.newaxis], 3, axis=2)
-    np.copyto(wall_part, img[..., :3], where=mask2)
+    mask2 = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
+    if not progressFilterEnabled:
+        np.copyto(wall_part, img[..., :3], where=mask2)
+    else:
+        np.copyto(wall_part, np.array([0, 0, 255], dtype=np.uint8), where=mask2)
+        need_to_not_set = ~(~same + ~visible)
+        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 3, axis=2)
+        # this now includes white pixels if they're visible (alpha > 0)
+        # depending on your input image the output may looks unexpected, but should be correct
+        np.copyto(wall_part, np.array([0, 255, 0], dtype=np.uint8), where=mask3)
 
 
 def repaint():
     global wall
     wall = orig_wall.copy()
-    if (overpaint):
-        paintWall()
+    if not overpaint and not progressFilterEnabled:
         paintImage()
+        paintWall()
     else:
-        paintImage()
         paintWall()
+        paintImage()
 
 
 def changeSize(scale_percent=0):
@@ -130,6 +138,12 @@ def toggleHide():
     repaint()
 
 
+def toggleProgressFilter():
+    global progressFilterEnabled
+    progressFilterEnabled = not progressFilterEnabled
+    repaint()
+
+
 def show(title):
     global count
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
@@ -156,6 +170,8 @@ def show(title):
             toggleOverpaint()
         elif k == 'h':
             toggleHide()
+        elif k == 'p':
+            toggleProgressFilter()
         elif k == 'i':
             nextInterpolationMode()
         elif k == 'c':
@@ -197,6 +213,7 @@ if __name__ == "__main__":
     wall_data = getPixelWallData()
     orig_wall = np.full((1000, 1000, 3), 255, np.uint8)
     hide = False
+    progressFilterEnabled = False
     int_mode = cfg["interpolation"]
     if int_mode not in interpolation_modes:
         print("unknown interpolation mode: " + cfg["interpolation"])

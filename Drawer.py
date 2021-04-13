@@ -1,5 +1,6 @@
 import argparse
 import configparser
+from datetime import datetime
 import json
 
 import cv2
@@ -7,7 +8,6 @@ import numpy as np
 import requests
 import time
 import os
-
 
 interpolation_modes = {
     "near": cv2.INTER_NEAREST,
@@ -43,7 +43,8 @@ def getPixelWallData():
     for pixel in w:
         if y_offset <= pixel["y"] < y_offset + y_res and \
                 x_offset <= pixel["x"] < x_offset + x_res:
-            wall[pixel["y"] - y_offset, pixel["x"] - x_offset] = tuple(int(pixel["color"][i:i+2], 16) for i in (0, 2, 4))
+            wall[pixel["y"] - y_offset, pixel["x"] - x_offset] = tuple(
+                int(pixel["color"][i:i + 2], 16) for i in (0, 2, 4))
 
 
 def updateDrawPixels():
@@ -121,13 +122,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Advanced beaconcha.in graffitiwall image drawer.')
     parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
                         help='pyrmont or mainnet (default: mainnet)')
-    parser.add_argument('--out-file', default='./graffiti.txt', help='Out location of the generated graffiti file (default: ./graffiti.txt).')
-    parser.add_argument('--settings-file', default='./settings.ini', help='Settings file location (default: ./settings.ini).')
-    parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku', 'nimbus'], help='your eth2 client.')
-    parser.add_argument('--eth2-url', default='localhost', help='Your nimbus client rpc-url.')  # TODO rename to nimbus/rpc
+    parser.add_argument('--out-file', default='./graffiti.txt',
+                        help='Out location of the generated graffiti file (default: ./graffiti.txt).')
+    parser.add_argument('--settings-file', default='./settings.ini',
+                        help='Settings file location (default: ./settings.ini).')
+    parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku', 'nimbus'],
+                        help='your eth2 client.')
+    parser.add_argument('--eth2-url', default='localhost',
+                        help='Your nimbus client rpc-url.')  # TODO rename to nimbus/rpc
     parser.add_argument('--eth2-port', default=9190, help='Your nimbus client rpc-port.')
-    parser.add_argument('--update-wall-time', default=600, help='Interval between graffiti wall updates (default: 600s).')
-    parser.add_argument('--update-file-time', default=30, help='Interval between graffiti file updates (default: 30s).')
+    parser.add_argument('--update-wall-time', default=600,
+                        help='Interval between graffiti wall updates (default: 600s).')
+    parser.add_argument('--update-file-time', default=60, help='Interval between graffiti file updates (default: 60s).')
     args = parser.parse_args()
 
     config = configparser.ConfigParser()
@@ -158,11 +164,18 @@ if __name__ == "__main__":
             draw_pixels = updateDrawPixels()
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
-            if args.client == "nimbus":
-                if not setNimbusGraffiti(getPixel()):
-                    print("error setting nimbus graffiti")
+            graffiti = getPixel()
+            now_string = '[' + str(datetime.now()) + ']: '
+            try:
+                if args.client == "nimbus":
+                    if not setNimbusGraffiti(graffiti):
+                        raise Exception("RequestException on calling RPC")
+                else:
+                    with open(args.out_file, 'w') as f:
+                        f.write(pre + graffiti + post)
+            except Exception as e:
+                print(now_string + 'Error setting graffiti: ', e)
             else:
-                with open(args.out_file, 'w') as f:
-                    f.write(pre + getPixel() + post)
+                print(now_string + 'Graffiti set: ' + graffiti)
             last_file_update = now
         time.sleep(10)

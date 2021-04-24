@@ -151,11 +151,12 @@ if __name__ == "__main__":
     # file formatting
     pre = ""
     post = ""
-    if args.client != "teku":
-        pre += "default: "
-        if args.client == "prysm":
-            pre += '"'
-            post = '"'
+    if args.client == "lighthouse":
+        pre = "default: "
+    elif args.client == "prysm":
+        pre = 'ordered:\n  - "'
+        post = '"'
+    # no pre/post for teku, and nimbus uses rpc anyways
     print("Generating graffitis...")
     while True:
         now = time.time()

@@ -10,12 +10,13 @@ representing your image on the wall. Then share it with your friends and start d
 
 ## Requirements
 You need python3 with some libraries. Install dependencies with `pip install -r requirements.txt`.
-It supports all 4 clients on amd64 and arm64 (raspberry pi & co).
-
+It should support all four clients on amd64 and arm64 (raspberry pi & co).
+[Note: I didn't test Prysm yet, let me know if it breaks!]
 
 ## Rocketpool users
 While this tool can be used by any eth2 staker, I want to provide an easy solution for rocketpool beta
-users. It will draw above situation (but on pyrmont).
+users. The first image we decided to draw on pyrmont is a minimal version of the Ethereum Logo (above situation).
+By following the instructions you can help drawing! Once we're done there will be a new image.
 
 1. **Running the script** \
    1.1 **Using docker** \
@@ -46,16 +47,7 @@ users. It will draw above situation (but on pyrmont).
    If you want to manually start the service and save some resources, you can also run the script
    alone. Here's how to do it using screen, but you could also use a system service for example.
    - Start the screen session: `screen -S graffiti`
-   - Run: `python3 Drawer.py --network pyrmont --client <your client> --out-file ~/.rocketpool/data/graffiti.txt`
-
-   1.3 **Nimbus users** \
-   You will need the unstable version for now which is not officially built and released.
-   Again, you can use one of my [docker images](https://hub.docker.com/repository/docker/ramirond/nimbus-eth2) or check
-   out official documentation to build your own. Next, load your new unstable image:
-   Edit `~/.rocketpool/config.yml` and select the new nimbus image
-   (e.g. `image: ramirond/nimbus-eth2:arm64-unstable`). \
-   For non-docker setups, you might want to use [my binaries](nimbus-unstable).
-   
+   - Run: `python3 Drawer.py --network pyrmont --client <your client> --out-file ~/.rocketpool/data/graffiti.txt`   
 
 3. Advise your validator client to load the graffiti from the generated file.
    - Edit `.rocketpool/chains/eth2/start-validator.sh` with the flags explained [below](#Usage-1).
@@ -71,7 +63,7 @@ desired configuration, so it can be picked up by the Drawer.
 `python3 Viewer.py` \
 You can move your image around using `wasd` and scale it with `+` and `-`
 (using different interpolation methods, iterated by `i`). To hide your image behind already drawn
-pixels, use `o` (shown below), `h` to hide it entirely. At any time you can print (to console)
+pixels, use `o` (example shown below), `h` to hide it entirely. At any time you can print (to console)
 the amount of pixels needed with `c`. To save your settings, press `f`. `Esc` or `q` to exit.
 
 To use your own file instead, edit `settings.ini` accordingly.
@@ -88,9 +80,7 @@ they each expect the graffiti file to be in a specific format. \
 Example: `python3 Drawer.py --network pyrmont --client lighthouse --out-file /mnt/ssd/lighthouse/graffiti.txt`
 
 Lighthouse, Teku and Prysm read the generated graffiti from a file.
-Nimbus gets updated via RPC. Note that this is still an `unstable` feature
-(if you don't want to build it yourself and you trust me, check out the binaries in 
-[nimbus-unstable](nimbus-unstable)). \
+Nimbus gets updated via RPC.\
 Just let the script run in another process (using screen, for example).
 Also don't forget restarting your eth2 validator client with the file specified / rpc enabled:
 - [Lighthouse](https://lighthouse-book.sigmaprime.io/graffiti.html#1-using-the---graffiti-file-flag-on-the-validator-client):

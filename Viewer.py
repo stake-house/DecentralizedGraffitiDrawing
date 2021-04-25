@@ -16,8 +16,8 @@ def getPixelWallData():
     try:
         page = requests.get(url)
     except requests.exceptions.RequestException as _:
-        print("can't reach graffitiwall")
-        exit(1)
+        print("[getPixelWallData] Can't reach graffitiwall")
+        return
     found = False
     wall_string = ""
     for line in page:
@@ -54,7 +54,7 @@ def saveSettings():
 
 def paintWall():
     for pixel in wall_data:
-        new_pixel = tuple(int(pixel["color"][i:i+2], 16) for i in (4, 2, 0))    # opencv wants pixels in BGR
+        new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 
@@ -82,6 +82,7 @@ def paintImage():
 
 
 def getPixelInfo(x, y):
+    # very inefficient, #TODO transform wall_data into map or something
     for pixel in wall_data:
         if pixel['y'] == y and pixel['x'] == x:
             info = ""
@@ -137,7 +138,7 @@ def nextInterpolationMode():
     changeSize()
 
 
-def changePos(x = 0, y = 0):
+def changePos(x=0, y=0):
     global x_offset, y_offset
     x_offset = max(0, min(x_offset + x, 1000 - x_res))
     y_offset = max(0, min(y_offset + y, 1000 - y_res))
@@ -183,6 +184,39 @@ def onMouseEvent(event, x, y, flags, param):
             draw_label(pixel_string, (x, y))
 
 
+def eth2addresses():
+    eth2_addresses = set()
+    for pixel in wall_data:
+        x = pixel["x"]
+        y = pixel["y"]
+        # 1. is near our image
+        if x_offset <= x <= x_offset + x_res and \
+                y_offset <= y <= y_offset + y_res:
+            if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == wall[y, x]):
+                eth2_addresses.add(str(pixel["validator"]))
+    return eth2_addresses
+
+
+def eth1addresses():
+    if cfg['network'] == "mainnet":
+        url = "https://beaconcha.in/api/v1/validator/"
+    elif cfg['network'] == "pyrmont":
+        url = "https://pyrmont.beaconcha.in/api/v1/validator/"
+    else:
+        print("wrong network!")
+        return
+    validators = ','.join(eth2addresses())
+    try:
+        page = requests.get(url + validators + "/deposits")
+    except requests.exceptions.RequestException as _:
+        print("can't reach graffitiwall")
+        return ""
+    eth1_addresses = set()
+    for validator in page.json()["data"]:
+        eth1_addresses.add(validator["from_address"])
+    return eth1_addresses
+
+
 def show(title):
     global count
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
@@ -216,9 +250,17 @@ def show(title):
             nextInterpolationMode()
         elif k == 'c':
             print("Need to draw " + str(count) + " Pixels currently.")
+        elif k == '1':
+            print("\n\n --- Participating eth1 addresses: ")
+            for add in eth1addresses():
+                print(add)
+        elif k == '2':
+            print("\n\n --- Participating validators: ")
+            for add in eth2addresses():
+                print(add)
         elif k == 'f':  # c == 19 to ctrl + s, but for qt backend only ?
             saveSettings()
-        elif k == 'q' or c == 27:   # esc-key
+        elif k == 'q' or c == 27:  # esc-key
             done = True
     cv2.destroyAllWindows()
 
@@ -230,8 +272,7 @@ interpolation_modes = {
     "area": cv2.INTER_AREA,
     "lanc4": cv2.INTER_LANCZOS4,
     "lin_ex": cv2.INTER_LINEAR_EXACT,
-    }
-
+}
 
 if __name__ == "__main__":
     config = configparser.ConfigParser()

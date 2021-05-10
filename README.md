@@ -18,42 +18,17 @@ While this tool can be used by any eth2 staker, I want to provide an easy soluti
 users. The first image we decided to draw on pyrmont is a minimal version of the Ethereum Logo (above situation).
 By following the instructions you can help drawing! Once we're done there will be a new image.
 
-1. **Running the script** \
-   1.1 **Using docker** \
-   If you want to integrate the process into rocketpools docker stack, this is for you: \
-   1.1.1 Get the docker image
-   - If you trust me, you can pull my image from dockerhub:
-   `docker pull ramirond/graffiti && docker image tag ramirond/graffiti rocketpool/graffiti`
-   - To create it yourself, run: `docker build -t rocketpool/graffiti .` (don't miss the `.`).
-   
-    1.1.2 Edit rocketpool's docker stack to also start your new container:
-   `nano ~/.rocketpool/docker-compose.yml` \
-   Insert this section as another service:
-   ```
-     graffiti:
-       image: rocketpool/graffiti
-       container_name: ${COMPOSE_PROJECT_NAME}_graffiti
-       restart: unless-stopped
-       volumes:
-         - ./data:/data
-       networks:
-         - net
-       command: "--network pyrmont --client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"
-       depends_on:
-         - eth2
-   ```
+Just run these commands to get started. It's assumed you're running rocketpool the normal way (default install directory, 
+docker etc.).
+```
+  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/main/rocketpool/install.sh -P ~/.rocketpool/graffiti/
+  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/main/rocketpool/uninstall.sh -P ~/.rocketpool/graffiti/
+  chmod +x ~/.rocketpool/graffiti/install.sh ~/.rocketpool/graffiti/uninstall.sh
+```
+install:
+  `~/.rocketpool/graffiti/install.sh` \
+uninstall:`~/.rocketpool/graffiti/uninstall.sh`
 
-   1.2 **Without Docker** \
-   If you want to manually start the service and save some resources, you can also run the script
-   alone. Here's how to do it using screen, but you could also use a system service for example.
-   - Start the screen session: `screen -S graffiti`
-   - Run: `python3 Drawer.py --network pyrmont --client <your client> --out-file ~/.rocketpool/data/graffiti.txt`   
-
-3. Advise your validator client to load the graffiti from the generated file.
-   - Edit `.rocketpool/chains/eth2/start-validator.sh` with the flags explained [below](#Usage-1).
-   - Or simply do:
-   `cp rocketpool/start-validator.sh ~/.rocketpool/chains/eth2/start-validator.sh`
-4. Restart your rocketpool service.
 
 ## Viewer
 The viewer loads the current graffitiwall as well as an image. You can move it around or
@@ -91,6 +66,11 @@ Also don't forget restarting your eth2 validator client with the file specified 
 - [Teku](https://docs.teku.consensys.net/en/latest/Reference/CLI/CLI-Syntax/#validators-graffiti-file):
   `teku vc --validators-graffiti-file=/path/to/your/graffiti.txt`
 - [Nimbus](https://nimbus.guide/api.html#introduction): `nimbus_beacon_node --rpc`
+
+### Contributing
+If you find any issues or want to help developing this tool, you can open an issue.
+Also, feel free to contact me for feedback.
+
 ### Disclaimer
   In theory, it shouldn't be possible for this script to interrupt your staking performance,
 but I won't promise that. Use at your own risk.

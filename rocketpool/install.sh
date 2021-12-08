@@ -19,7 +19,7 @@ sed -i '/services:/a\
     container_name: ${COMPOSE_PROJECT_NAME}_graffiti\
     restart: unless-stopped\
     volumes:\
-      - ./data:/data\
+      - ./data/validators:/data\
     networks:\
       - net\
     command: "--client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"\
@@ -30,7 +30,7 @@ sed -i '/services:/a\
 echo -e "\n  ---  3/5 Instructing validator to load the dynamic graffiti...\n"
 # We could just statically replace the entire script as users typically won't modify this
 # But it's probably good style to only touch our stuff anyways
-sed -i 's/-graffiti\([= ]\)"$GRAFFITI"/-graffiti-file\1\/data\/graffiti.txt/' ~/.rocketpool/chains/eth2/start-validator.sh
+sed -i 's/-graffiti\([= ]\)"$GRAFFITI"/-graffiti-file\1\/validators\/graffiti.txt/' ~/.rocketpool/chains/eth2/start-validator.sh
 
 # 4. stopping rocketpool
 echo -e "\n  ---  4/5 Stopping rocketpool...\n"

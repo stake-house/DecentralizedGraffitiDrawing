@@ -1,3 +1,7 @@
+# Here's the cross-compilation command (in case I forget it again):
+# docker buildx build --platform=linux/amd64,linux/arm64 -t ramirond/graffiti:rp --push .
+
+
 FROM python:slim-buster
 
 RUN apt-get update
@@ -8,6 +12,6 @@ RUN pip install --no-cache-dir -r /graffiti/requirements.txt
 
 COPY settings.ini /graffiti/
 COPY Drawer.py /graffiti/
-COPY /examples/images/simpleEth.png /graffiti/examples/images/simpleEth.png
+COPY /examples/images/rpl.png /graffiti/examples/images/rpl.png
 
 ENTRYPOINT ["python", "-u", "/graffiti/Drawer.py", "--settings-file", "/graffiti/settings.ini"]

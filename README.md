@@ -14,18 +14,18 @@ It should support all four clients on amd64 and arm64 (raspberry pi & co).
 [Note: I didn't test Prysm yet, let me know if it breaks!]
 
 ## Rocketpool users
-While this tool can be used by any eth2 staker, I want to provide an easy solution for rocketpool beta
-users. The first image we decided to draw on pyrmont is a minimal version of the Ethereum Logo (above situation).
+While this tool can be used by any eth2 staker, here is an easy solution for rocketpool
+users. The first image we decided to draw is the Rocket Pool logo.
 By following the instructions you can help drawing! Once we're done there will be a new image.
 
-Just run these commands to get started. It's assumed you're running rocketpool the normal way (default install directory, 
-docker etc.).
+Just run these commands to get started. It's assumed you're running rocketpool the normal way (default install directory of `.rocketpool`, 
+using docker etc.). If you don't, you probably know what you are doing and are able to modify accordingly.
 ```
-  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/main/rocketpool/install.sh -P ~/.rocketpool/graffiti/
-  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/main/rocketpool/uninstall.sh -P ~/.rocketpool/graffiti/
+  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/rocket_pool/rocketpool/install.sh -P ~/.rocketpool/graffiti/
+  wget https://raw.githubusercontent.com/RomiRand/DecentralizedGraffitiDrawing/rocket_pool/rocketpool/uninstall.sh -P ~/.rocketpool/graffiti/
   chmod +x ~/.rocketpool/graffiti/install.sh ~/.rocketpool/graffiti/uninstall.sh
 ```
-install:
+To install, run this command. This will briefly stop your rocketpool stack, add the graffiti container and restart it:
   `~/.rocketpool/graffiti/install.sh` \
 uninstall:`~/.rocketpool/graffiti/uninstall.sh`
 

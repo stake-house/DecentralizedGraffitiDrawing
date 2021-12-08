@@ -283,6 +283,7 @@ if __name__ == "__main__":
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))
     y_res = int(y_res * (scale / 100))
+    # absolute resolution is preffered over relative (= scale is ignored if x/y_res is set)
     if cfg['XRes'] != "original":
         x_res = int(cfg['XRes'])
     if cfg['YRes'] != "original":

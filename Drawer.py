@@ -21,12 +21,10 @@ interpolation_modes = {
 
 def getPixelWallData():
     global wall
-    if args.network == "mainnet":
+    if cfg['network'] == "mainnet":
         url = "https://beaconcha.in/api/v1/graffitiwall"
-    elif args.network == "pyrmont":
-        url = "https://pyrmont.beaconcha.in/api/v1/graffitiwall"
     else:
-        print("unknown network!")
+        url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
         return
     try:
         page = requests.get(url)
@@ -120,8 +118,6 @@ def setNimbusGraffiti(graffiti):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Advanced beaconcha.in graffitiwall image drawer.')
-    parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
-                        help='pyrmont or mainnet (default: mainnet)')
     parser.add_argument('--out-file', default='./graffiti.txt',
                         help='Out location of the generated graffiti file (default: ./graffiti.txt).')
     parser.add_argument('--settings-file', default='./settings.ini',

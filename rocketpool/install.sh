@@ -3,7 +3,7 @@
 # 1. get the latest graffiti docker image
 # could let docker-compose do this, but we want to minimize downtime
 echo -e "\n  ---  1/5 Pulling graffiti docker image...\n"
-docker pull ramirond/graffiti
+docker pull ramirond/graffiti:rp
 
 # 2. stopping rocketpool
 echo -e "\n  ---  2/5 Stopping rocketpool...\n"
@@ -18,14 +18,14 @@ sed -i '/  graffiti:/{:a;N;/      - eth2/!ba};/  graffiti:/d' ~/.rocketpool/dock
 echo -e "\n  ---  3/5 Adding graffiti container to rocketpool stack...\n"
 sed -i '/services:/a\
   graffiti:\
-    image: ramirond/graffiti\
+    image: ramirond/graffiti:rp\
     container_name: ${COMPOSE_PROJECT_NAME}_graffiti\
     restart: unless-stopped\
     volumes:\
       - ./data:/data\
     networks:\
       - net\
-    command: "--network pyrmont --client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"\
+    command: "--client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"\
     depends_on:\
       - eth2' ~/.rocketpool/docker-compose.yml
 

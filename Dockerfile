@@ -12,6 +12,6 @@ RUN pip install --no-cache-dir -r /graffiti/requirements.txt
 
 COPY settings.ini /graffiti/
 COPY Drawer.py /graffiti/
-COPY /examples/images/rpl.png /graffiti/examples/images/rpl.png
+COPY /examples/images/rp.png /graffiti/examples/images/rp.png
 
 ENTRYPOINT ["python", "-u", "/graffiti/Drawer.py", "--settings-file", "/graffiti/settings.ini"]

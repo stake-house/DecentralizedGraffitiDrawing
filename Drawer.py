@@ -64,8 +64,8 @@ def getPixel():
         color = format(img[y][x][0], '02x')
         color += format(img[y][x][1], '02x')
         color += format(img[y][x][2], '02x')
-        return "graffitiwall:" + str(x + x_offset) + ":" + str(y + y_offset) + ":#" + color
-    return "RocketPool"
+        return "gw:" + str(x + x_offset).zfill(3) + str(y + y_offset).zfill(3) + color
+    return "graffiti done"
 
 
 def getImage():
@@ -161,7 +161,10 @@ if __name__ == "__main__":
             draw_pixels = updateDrawPixels()
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
-            graffiti = getPixel()
+            # max 32 bytes/characters.
+            # actual graffiti is 15, "RP-X" + spaces + parentheses are 8
+            # so we've 9 characters left for version
+            graffiti = "RP-" + args.client[0:1].upper() + " " + os.environ['ROCKET_POOL_VERSION'][0:9] + " (" + getPixel() + ")"
             now_string = '[' + str(datetime.now()) + ']: '
             try:
                 if args.client == "nimbus":

@@ -23,6 +23,8 @@ sed -i '/services:/a\
     networks:\
       - net\
     command: "--client $VALIDATOR_CLIENT --out-file /data/graffiti.txt --eth2-url eth2 --eth2-port 5052"\
+    environment:\
+      - ROCKET_POOL_VERSION=${ROCKET_POOL_VERSION}\
     depends_on:\
       - eth2' ~/.rocketpool/docker-compose.yml
 

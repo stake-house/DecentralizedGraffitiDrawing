@@ -33,6 +33,11 @@ echo -e "\n  ---  3/5 Instructing validator to load the dynamic graffiti...\n"
 # We could just statically replace the entire script as users typically won't modify this
 # But it's probably good style to only touch our stuff anyways
 sed -i 's/-graffiti\([= ]\)"$GRAFFITI"/-graffiti-file\1\/validators\/graffiti.txt/' ~/.rocketpool/chains/eth2/start-validator.sh
+# Put in place a placeholder graffiti file to prevent unnecessary downtime
+if [ ! -f ~/.rocketpool/data/validators/graffiti.txt ]; then
+  echo -e "\n  ---  3.5/5 Temporary placeholder graffiti file to prevent downtime...\n"
+  echo -e "default: RP (gw:674491ffae7c)" > ~/.rocketpool/data/validators/graffiti.txt
+fi
 
 # 4. stopping rocketpool
 echo -e "\n  ---  4/5 Stopping rocketpool...\n"

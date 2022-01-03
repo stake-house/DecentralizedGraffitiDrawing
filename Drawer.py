@@ -21,12 +21,10 @@ interpolation_modes = {
 
 def getPixelWallData():
     global wall
-    if args.network == "mainnet":
+    if cfg['network'] == "mainnet":
         url = "https://beaconcha.in/api/v1/graffitiwall"
-    elif args.network == "pyrmont":
-        url = "https://pyrmont.beaconcha.in/api/v1/graffitiwall"
     else:
-        print("unknown network!")
+        url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
         return
     try:
         page = requests.get(url)
@@ -66,8 +64,8 @@ def getPixel():
         color = format(img[y][x][0], '02x')
         color += format(img[y][x][1], '02x')
         color += format(img[y][x][2], '02x')
-        return "graffitiwall:" + str(x + x_offset) + ":" + str(y + y_offset) + ":#" + color
-    return "RocketPool"
+        return "gw:" + str(x + x_offset).zfill(3) + str(y + y_offset).zfill(3) + color
+    return "graffiti done"
 
 
 def getImage():
@@ -120,8 +118,6 @@ def setNimbusGraffiti(graffiti):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Advanced beaconcha.in graffitiwall image drawer.')
-    parser.add_argument('--network', default='mainnet', choices=['mainnet', 'pyrmont'],
-                        help='pyrmont or mainnet (default: mainnet)')
     parser.add_argument('--out-file', default='./graffiti.txt',
                         help='Out location of the generated graffiti file (default: ./graffiti.txt).')
     parser.add_argument('--settings-file', default='./settings.ini',
@@ -165,7 +161,10 @@ if __name__ == "__main__":
             draw_pixels = updateDrawPixels()
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
-            graffiti = getPixel()
+            # max 32 bytes/characters.
+            # actual graffiti is 15, "RP-X" + spaces + parentheses are 8
+            # so we've 9 characters left for version
+            graffiti = "RP-" + args.client[0:1].upper() + " " + os.environ['ROCKET_POOL_VERSION'][0:9] + " (" + getPixel() + ")"
             now_string = '[' + str(datetime.now()) + ']: '
             try:
                 if args.client == "nimbus":

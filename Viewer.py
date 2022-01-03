@@ -1,3 +1,4 @@
+import os
 import requests
 import cv2
 import json
@@ -18,18 +19,9 @@ def getPixelWallData():
     except requests.exceptions.RequestException as _:
         print("[getPixelWallData] Can't reach graffitiwall")
         return
-    found = False
-    wall_string = ""
-    for line in page:
-        if found:
-            wall_string += line.decode("utf-8").split("\n")[0]
-            if b'}]\n' in line:
-                break
-            continue
-        if b"var pixels = [{" in line:
-            found = True
-            wall_string += line.decode("utf-8").split("var pixels = ", 1)[1]
-
+    wall_string = "[]"
+    if "var pixels = [{" in page.text:
+        wall_string = page.text.split("var pixels = ", 1)[1].split("\n")[0]
     return json.loads(wall_string)
 
 
@@ -275,10 +267,13 @@ interpolation_modes = {
 }
 
 if __name__ == "__main__":
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(inline_comment_prefixes=('#',))
     config.read('settings.ini')
     cfg = config['GraffitiConfig']
-    orig_img = cv2.imread(cfg['ImagePath'], cv2.IMREAD_UNCHANGED)
+    file = cfg['ImagePath']
+    if not os.path.isabs(file):
+        file = os.path.dirname(os.path.abspath(__file__)) + "/" + file
+    orig_img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
     y_res, x_res, channels = orig_img.shape
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))

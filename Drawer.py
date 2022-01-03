@@ -18,6 +18,17 @@ interpolation_modes = {
     "lin_ex": cv2.INTER_LINEAR_EXACT,
 }
 
+def scrapeWall(url):
+    try:
+        page = requests.get(url)
+    except requests.exceptions.RequestException as _:
+        print("[scrapeWall] Can't reach graffitiwall at " + url)
+        return
+    wall_string = "[]"
+    if "var pixels = [{" in page.text:
+        wall_string = page.text.split("var pixels = ", 1)[1].split("\n")[0]
+    return json.loads(wall_string)
+
 
 def getPixelWallData():
     global wall
@@ -25,16 +36,18 @@ def getPixelWallData():
         url = "https://beaconcha.in/api/v1/graffitiwall"
     else:
         url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
-        return
-    try:
-        page = requests.get(url)
-    except requests.exceptions.RequestException as _:
-        print("can't reach graffitiwall")
-        return
-    if page.status_code != 200:
-        print("error fetching wall")
-        return
-    w = page.json()["data"]
+    if cfg['network'] == "gnosis":
+        w = scrapeWall("https://beacon.gnosischain.com/graffitiwall")
+    else:
+        try:
+            page = requests.get(url)
+        except requests.exceptions.RequestException as _:
+            print("[getPixelWallData] Can't reach graffitiwall at " + url)
+            return
+        if page.status_code != 200:
+            print("[getPixelWallData] Error fetching wall")
+            return
+        w = page.json()["data"]
 
     # filter visible area
     wall = dict()
@@ -132,7 +145,7 @@ if __name__ == "__main__":
     parser.add_argument('--update-file-time', default=60, help='Interval between graffiti file updates (default: 60s).')
     args = parser.parse_args()
 
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(inline_comment_prefixes=('#',))
     config.read(args.settings_file)
     cfg = config['GraffitiConfig']
     img, x_offset, y_offset = getImage()
@@ -163,7 +176,7 @@ if __name__ == "__main__":
         if last_file_update + args.update_file_time < now:
             # max 32 bytes/characters.
             # pixel is 15, so we've 17 left
-            graffiti = cfg["graffiti"][0:17] + getPixel()
+            graffiti = cfg["graffiti"][0:16] + " " + getPixel()
             now_string = '[' + str(datetime.now()) + ']: '
             try:
                 if args.client == "nimbus":

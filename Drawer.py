@@ -162,9 +162,8 @@ if __name__ == "__main__":
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
             # max 32 bytes/characters.
-            # actual graffiti is 15, "RP-X" + spaces + parentheses are 8
-            # so we've 9 characters left for version
-            graffiti = "RP-" + args.client[0:1].upper() + " " + os.environ['ROCKET_POOL_VERSION'][0:9] + " (" + getPixel() + ")"
+            # pixel is 15, so we've 17 left
+            graffiti = cfg["graffiti"][0:17] + getPixel()
             now_string = '[' + str(datetime.now()) + ']: '
             try:
                 if args.client == "nimbus":

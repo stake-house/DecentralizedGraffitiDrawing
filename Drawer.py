@@ -34,21 +34,23 @@ def getPixelWallData():
     global wall
     if cfg['network'] == "mainnet":
         url = "https://beaconcha.in/api/v1/graffitiwall"
+    elif cfg['network'] == "gnosis":
+        url = "https://beacon.gnosischain.com/api/v1/graffitiwall"
     else:
         url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
-    if cfg['network'] == "gnosis":
-        w = scrapeWall("https://beacon.gnosischain.com/graffitiwall")
-    else:
-        try:
-            page = requests.get(url)
-        except requests.exceptions.RequestException as _:
-            print("[getPixelWallData] Can't reach graffitiwall at " + url)
-            return
-        if page.status_code != 200:
-            print("[getPixelWallData] Error fetching wall")
-            return
-        w = page.json()["data"]
-
+    try:
+        page = requests.get(url)
+    except requests.exceptions.RequestException as _:
+        print("[getPixelWallData] Can't reach graffitiwall at " + url)
+        return
+    if page.status_code != 200:
+        print("[getPixelWallData] Error fetching wall")
+        return
+    w = page.json()["data"]
+    if type(w) is dict: # if only one pixel
+        l = list()
+        l.append(w)
+        w = l
     # filter visible area
     wall = dict()
     for pixel in w:
@@ -68,7 +70,7 @@ def updateDrawPixels():
     return static_draw + (~transparent_pixels * overdraw)
 
 
-def getPixel():
+def getPixel(new_format=True):
     draw_y, draw_x = np.where(draw_pixels)
     if len(draw_y) > 0:
         random_pixel_index = np.random.choice(len(draw_y))
@@ -77,7 +79,10 @@ def getPixel():
         color = format(img[y][x][0], '02x')
         color += format(img[y][x][1], '02x')
         color += format(img[y][x][2], '02x')
-        return "gw:" + str(x + x_offset).zfill(3) + str(y + y_offset).zfill(3) + color
+        if new_format:
+            return "gw:" + str(x + x_offset).zfill(3) + str(y + y_offset).zfill(3) + color
+        else:
+            return "graffitiwall:" + str(x + x_offset) + ":" + str(y + y_offset) + ":#" + color
     return "graffiti done"
 
 
@@ -175,8 +180,10 @@ if __name__ == "__main__":
             last_wall_update = now
         if last_file_update + args.update_file_time < now:
             # max 32 bytes/characters.
-            # pixel is 15, so we've 17 left
-            graffiti = cfg["graffiti"][0:16] + " " + getPixel()
+            graffiti = getPixel(cfg['network'] != "gnosis")
+            if cfg['network'] != "gnosis":
+                # pixel is 15, so we've 17 left
+                graffiti = cfg["graffiti"][0:16] + " " + graffiti
             now_string = '[' + str(datetime.now()) + ']: '
             try:
                 if args.client == "nimbus":

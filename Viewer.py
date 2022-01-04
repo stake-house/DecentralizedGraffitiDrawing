@@ -8,21 +8,25 @@ import numpy as np
 
 def getPixelWallData():
     if cfg['network'] == "mainnet":
-        url = "https://beaconcha.in/graffitiwall"
-    elif cfg['network'] == "pyrmont":
-        url = "https://pyrmont.beaconcha.in/graffitiwall"
+        url = "https://beaconcha.in/api/v1/graffitiwall"
+    elif cfg['network'] == "gnosis":
+        url = "https://beacon.gnosischain.com/api/v1/graffitiwall"
     else:
-        print("wrong network!")
-        return
+        url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
     try:
         page = requests.get(url)
     except requests.exceptions.RequestException as _:
-        print("[getPixelWallData] Can't reach graffitiwall")
+        print("[getPixelWallData] Can't reach graffitiwall at " + url)
         return
-    wall_string = "[]"
-    if "var pixels = [{" in page.text:
-        wall_string = page.text.split("var pixels = ", 1)[1].split("\n")[0]
-    return json.loads(wall_string)
+    if page.status_code != 200:
+        print("[getPixelWallData] Error fetching wall")
+        return
+    w = page.json()["data"]
+    if type(w) is dict: # if only one pixel
+        l = list()
+        l.append(w)
+        w = l
+    return w
 
 
 def saveSettings():

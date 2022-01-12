@@ -1,20 +1,13 @@
 import os
 import requests
 import cv2
-import json
 import configparser
 import numpy as np
 
 
 def getPixelWallData():
-    if cfg['network'] == "mainnet":
-        url = "https://beaconcha.in/api/v1/graffitiwall"
-    elif cfg['network'] == "gnosis":
-        url = "https://beacon.gnosischain.com/api/v1/graffitiwall"
-    else:
-        url = "https://" + cfg['network'] + ".beaconcha.in/api/v1/graffitiwall"
     try:
-        page = requests.get(url)
+        page = requests.get(baseUrl + "graffitiwall")
     except requests.exceptions.RequestException as _:
         print("[getPixelWallData] Can't reach graffitiwall at " + url)
         return
@@ -41,7 +34,6 @@ def saveSettings():
     config['GraffitiConfig']['scale'] = str(scale)
     config['GraffitiConfig']['xoffset'] = str(x_offset)
     config['GraffitiConfig']['yoffset'] = str(y_offset)
-    config['GraffitiConfig']['overpaint'] = str(overpaint)
     config['GraffitiConfig']['interpolation'] = str(int_mode)
     with open('settings.ini', 'w') as cfgfile:
         config.write(cfgfile)
@@ -61,7 +53,7 @@ def paintImage():
     visible = img[..., 3] != 0
     wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
     # This looks too complicated. If you know how to do this better, feel free to improve
-    same = np.all(img[..., :3] == wall_part, axis=-1)
+    same = np.all(img[..., :3] == wall_part, axis=-1)  # correct pixels set to true, but doesn't filter transparent
     need_to_set = ~(same + ~visible)
     count = np.sum(need_to_set)
 
@@ -94,12 +86,12 @@ def getPixelInfo(x, y):
 def repaint():
     global wall, wall2
     wall = np.full((1000, 1000, 3), 255, np.uint8)
-    if not overpaint and not progressFilterEnabled:
-        paintImage()
+    if overpaint or progressFilterEnabled:
         paintWall()
+        paintImage()
     else:
-        paintWall()
         paintImage()
+        paintWall()
     wall2 = wall.copy()
 
 
@@ -193,23 +185,40 @@ def eth2addresses():
     return eth2_addresses
 
 
+def printHelp():
+    print("   ### USAGE ###")
+    print("Press buttons while the viewer window is active.")
+    print(" h               This help message")
+    print(" w, a, s, d      Move image around")
+    print(" +, -            Scale image")
+    print(" i               Loop through interpolation modes used in image scaling")
+    print(" v               Show/hide image")
+    print(" o               Enable/disable 'overpaint'. If not active, 'wrong' pixels (by others) are drawn above your image. This could help you selecting an empty spot.")
+    print(" p               Enable/disable progress filter. Used to highlight right and wrong pixels which could be hard to detect otherwise.")
+    print(" c               Counts how many pixels are needed to draw your image.")
+    print(" 1               List execution layer addresses of drawing participants for your image (eg. for POAPs)")
+    print(" 2               List validator addresses of drawing participants for your image")
+    print(" f               Save your current image configuration to settings.ini")
+    print(" q, ESC          Close application")
+
 def eth1addresses():
-    if cfg['network'] == "mainnet":
-        url = "https://beaconcha.in/api/v1/validator/"
-    elif cfg['network'] == "pyrmont":
-        url = "https://pyrmont.beaconcha.in/api/v1/validator/"
-    else:
-        print("wrong network!")
-        return
-    validators = ','.join(eth2addresses())
+    val_addresses = eth2addresses()
+    if len(val_addresses) == 0:
+        print("No pixels yet")
+        return set()
+    validators = ','.join(val_addresses)
     try:
-        page = requests.get(url + validators + "/deposits")
+        page = requests.get(baseUrl + "validator/"+ validators + "/deposits")
     except requests.exceptions.RequestException as _:
         print("can't reach graffitiwall")
         return ""
     eth1_addresses = set()
-    for validator in page.json()["data"]:
-        eth1_addresses.add(validator["from_address"])
+    data = page.json()['data']
+    if type(data) is dict:
+        eth1_addresses.add(data['from_address'])
+    else:
+        for validator in data:
+            eth1_addresses.add(validator["from_address"])
     return eth1_addresses
 
 
@@ -218,6 +227,7 @@ def show(title):
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
+    print('Config loaded! Press "h" while the viewer window is active to show manuals.')
     while not done:
         cv2.imshow(title, wall2)
         c = cv2.waitKey(1)
@@ -236,9 +246,11 @@ def show(title):
             changePos(0, 10)
         elif k == 'd':
             changePos(10, 0)
+        elif k == 'h':
+            printHelp()
         elif k == 'o':
             toggleOverpaint()
-        elif k == 'h':
+        elif k == 'v':
             toggleHide()
         elif k == 'p':
             toggleProgressFilter()
@@ -247,7 +259,7 @@ def show(title):
         elif k == 'c':
             print("Need to draw " + str(count) + " Pixels currently.")
         elif k == '1':
-            print("\n\n --- Participating eth1 addresses: ")
+            print("\n\n --- Participating execution layer addresses: ")
             for add in eth1addresses():
                 print(add)
         elif k == '2':
@@ -271,6 +283,7 @@ interpolation_modes = {
 }
 
 if __name__ == "__main__":
+    print("Loading your image config from settings.ini... Please wait")
     config = configparser.ConfigParser(inline_comment_prefixes=('#',))
     config.read('settings.ini')
     cfg = config['GraffitiConfig']
@@ -287,10 +300,16 @@ if __name__ == "__main__":
         x_res = int(cfg['XRes'])
     if cfg['YRes'] != "original":
         y_res = int(cfg['YRes'])
+    if cfg['network'] == "mainnet":
+        baseUrl = "https://beaconcha.in/api/v1/"
+    elif cfg['network'] == "gnosis":
+        baseUrl = "https://beacon.gnosischain.com/api/v1/"
+    else:
+        baseUrl = "https://" + cfg['network'] + ".beaconcha.in/api/v1/"
     img = orig_img
     x_offset = min(1000 - x_res, int(cfg['XOffset']))
     y_offset = min(1000 - y_res, int(cfg['YOffset']))
-    overpaint = cfg.getboolean('OverPaint')
+    overpaint = True
     wall_data = getPixelWallData()
     hide = False
     progressFilterEnabled = False

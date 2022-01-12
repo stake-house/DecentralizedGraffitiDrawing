@@ -36,13 +36,7 @@ scale it until you found your favorite spot. Once you're done, you can save your
 desired configuration, so it can be picked up by the Drawer.
 ### Usage:
 `python3 Viewer.py` \
-You can move your image around using `wasd` and scale it with `+` and `-`
-(using different interpolation methods, iterated by `i`). To hide your image behind already drawn
-pixels, use `o` (example shown below), `h` to hide it entirely. At any time you can print (to console)
-the amount of pixels needed with `c`. Print a list of participators with `1` for eth1 addresses and `2` for eth2 validators.
-To save your settings, press `f`. `Esc` or `q` to exit.
-
-To use your own file instead, edit `settings.ini` accordingly.
+You can move, scale, hide etc. your image. Press `h` while the viewer window is active to show all options.
 
 <img src="https://raw.githubusercontent.com/RomiRand/rpl_graffiti/main/doc/overpaint.png" width="400">
 

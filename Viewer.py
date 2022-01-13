@@ -46,17 +46,22 @@ def paintWall():
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 
+counted = False
 def paintImage():
-    global wall, img, count
+    global wall, img, left_pixels, right_pixels, total_pixels, counted
     if hide:
         return
     visible = img[..., 3] != 0
     wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
     # This looks too complicated. If you know how to do this better, feel free to improve
     same = np.all(img[..., :3] == wall_part, axis=-1)  # correct pixels set to true, but doesn't filter transparent
-    need_to_set = ~(same + ~visible)
-    count = np.sum(need_to_set)
-
+    correct_pixels = same + ~visible
+    need_to_set = ~correct_pixels
+    if not counted:
+        left_pixels = np.sum(need_to_set)
+        total_pixels = np.sum(visible)
+        right_pixels = np.sum(correct_pixels) - np.sum(~visible)
+        counted = True
     mask2 = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     if not progressFilterEnabled:
         np.copyto(wall_part, img[..., :3], where=mask2)
@@ -257,7 +262,9 @@ def show(title):
         elif k == 'i':
             nextInterpolationMode()
         elif k == 'c':
-            print("Need to draw " + str(count) + " Pixels currently.")
+            print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " invisible)")
+            print("Correct pixels: " + str(right_pixels))
+            print("Pixels left:    " + str(left_pixels) + "\n\n")
         elif k == '1':
             print("\n\n --- Participating execution layer addresses: ")
             for add in eth1addresses():

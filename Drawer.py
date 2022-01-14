@@ -100,20 +100,14 @@ def getImage():
 
 
 def setNimbusGraffiti(graffiti):
-    url = "http://" + args.eth2_url + ":" + str(args.eth2_port) + "/jsonrpc"
-    headers = {'content-type': 'application/json'}
+    url = "http://" + args.eth2_url + ":" + str(args.eth2_port) + "/api/nimbus/v1/graffiti"
+    header = {'content-type': 'text/plain'}
 
-    payload = {
-        "method": "setGraffiti",
-        "params": [graffiti],
-        "jsonrpc": "2.0",
-        "id": "id",
-    }
     try:
-        response = requests.post(url, data=json.dumps(payload), headers=headers).json()
+        response = requests.post(url, headers=header, data=graffiti)
     except requests.exceptions.RequestException as e:
         return False
-    return 'result' in response
+    return response.ok
 
 
 if __name__ == "__main__":
@@ -125,8 +119,8 @@ if __name__ == "__main__":
     parser.add_argument('--client', required=True, choices=['prysm', 'lighthouse', 'teku', 'nimbus'],
                         help='your eth2 client.')
     parser.add_argument('--eth2-url', default='localhost',
-                        help='Your nimbus client rpc-url.')  # TODO rename to nimbus/rpc
-    parser.add_argument('--eth2-port', default=9190, help='Your nimbus client rpc-port.')
+                        help='Your nimbus client url.')  # TODO rename to nimbus/rpc
+    parser.add_argument('--eth2-port', default=5052, help='Your nimbus client rest api port.')
     parser.add_argument('--update-wall-time', default=600,
                         help='Interval between graffiti wall updates (default: 600s).')
     parser.add_argument('--update-file-time', default=60, help='Interval between graffiti file updates (default: 60s).')

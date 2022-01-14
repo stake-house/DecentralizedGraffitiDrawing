@@ -267,12 +267,16 @@ def show(title):
             print("Pixels left:    " + str(left_pixels) + "\n\n")
         elif k == '1':
             print("\n\n --- Participating execution layer addresses: ")
-            for add in eth1addresses():
+            eth1 = eth1addresses()
+            for add in eth1:
                 print(add)
+            print(" --- " + str(len(eth1)) + " total\n")
         elif k == '2':
-            print("\n\n --- Participating validators: ")
-            for add in eth2addresses():
+            print("\n\n --- Participating validator indices: ")
+            eth2 = eth2addresses()
+            for add in eth2:
                 print(add)
+            print(" --- " + str(len(eth2)) + " total\n")
         elif k == 'f':  # c == 19 to ctrl + s, but for qt backend only ?
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key

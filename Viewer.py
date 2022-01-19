@@ -40,9 +40,37 @@ def saveSettings():
     print('saved')
 
 
+indices = set()
+def loadIndices():
+    try:
+        page = requests.get(baseUrl + "validator/eth1/" + address)
+    except requests.exceptions.RequestException as _:
+        print("can't reach graffitiwall")
+        return ""
+    if not page.ok:
+        print(page.text)
+        return
+    data = page.json()['data']
+    if data is None:
+        print("Invalid address")
+        return
+    if type(data) is dict:
+        l = list()
+        l.append(data)
+        data = l
+    for validator in data:
+        indices.add(validator["validatorindex"])
+
+
 def paintWall():
+    global indices
+    if eth1FilterEnabled and len(indices) == 0:
+        loadIndices()
     for pixel in wall_data:
-        new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
+        if eth1FilterEnabled and pixel["validator"] not in indices:
+            new_pixel = [255, 255, 255]
+        else:
+            new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 
@@ -183,9 +211,9 @@ def eth2addresses():
         x = pixel["x"]
         y = pixel["y"]
         # 1. is near our image
-        if x_offset <= x <= x_offset + x_res and \
-                y_offset <= y <= y_offset + y_res:
-            if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == wall[y, x]):
+        if x_offset <= x < x_offset + x_res and \
+           y_offset <= y < y_offset + y_res:
+            if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == img[y - y_offset, x - x_offset, :3]):
                 eth2_addresses.add(str(pixel["validator"]))
     return eth2_addresses
 
@@ -204,6 +232,7 @@ def printHelp():
     print(" 1               List execution layer addresses of drawing participants for your image (eg. for POAPs)")
     print(" 2               List validator addresses of drawing participants for your image")
     print(" f               Save your current image configuration to settings.ini")
+    print(" x               Filter by execution layer address")
     print(" q, ESC          Close application")
 
 def eth1addresses():
@@ -225,6 +254,12 @@ def eth1addresses():
         for validator in data:
             eth1_addresses.add(validator["from_address"])
     return eth1_addresses
+
+
+def toggleAddressFilter():
+    global eth1FilterEnabled
+    eth1FilterEnabled = not eth1FilterEnabled
+    repaint()
 
 
 def show(title):
@@ -261,6 +296,8 @@ def show(title):
             toggleProgressFilter()
         elif k == 'i':
             nextInterpolationMode()
+        elif k == 'x':
+            toggleAddressFilter()
         elif k == 'c':
             print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " invisible)")
             print("Correct pixels: " + str(right_pixels))
@@ -324,7 +361,9 @@ if __name__ == "__main__":
     wall_data = getPixelWallData()
     hide = False
     progressFilterEnabled = False
+    eth1FilterEnabled = False
     int_mode = cfg["interpolation"]
+    address = cfg["address"]
     if int_mode not in interpolation_modes:
         print("unknown interpolation mode: " + cfg["interpolation"])
         exit(1)

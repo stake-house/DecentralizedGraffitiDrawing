@@ -185,7 +185,7 @@ if __name__ == "__main__":
                         raise Exception("RequestException on calling RPC")
                 else:
                     with open(args.out_file, 'w') as f:
-                        f.write(pre + graffiti + post)
+                        f.write(pre + graffiti + post + '\n')
             except Exception as e:
                 print(now_string + 'Error setting graffiti: ', e)
             else:

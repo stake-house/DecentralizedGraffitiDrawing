@@ -215,7 +215,7 @@ def eth2addresses():
            y_offset <= y < y_offset + y_res:
             if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == img[y - y_offset, x - x_offset, :3]):
                 eth2_addresses.add(str(pixel["validator"]))
-    return eth2_addresses
+    return list(eth2_addresses)
 
 
 def printHelp():
@@ -240,19 +240,21 @@ def eth1addresses():
     if len(val_addresses) == 0:
         print("No pixels yet")
         return set()
-    validators = ','.join(val_addresses)
-    try:
-        page = requests.get(baseUrl + "validator/"+ validators + "/deposits")
-    except requests.exceptions.RequestException as _:
-        print("can't reach graffitiwall")
-        return ""
     eth1_addresses = set()
-    data = page.json()['data']
-    if type(data) is dict:
-        eth1_addresses.add(data['from_address'])
-    else:
-        for validator in data:
-            eth1_addresses.add(validator["from_address"])
+    for i in range(0, len(val_addresses), 100):
+        validators = ','.join(val_addresses[i:i+100])
+        try:
+            page = requests.get(baseUrl + "validator/" + validators + "/deposits")
+        except requests.exceptions.RequestException as _:
+            print("can't reach graffitiwall")
+            return ""
+        data = page.json()['data']
+        if type(data) is dict:
+            eth1_addresses.add(data['from_address'])
+        else:
+            for validator in data:
+                eth1_addresses.add(validator["from_address"])
+    
     return eth1_addresses
 
 

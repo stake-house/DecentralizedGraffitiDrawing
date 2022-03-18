@@ -52,7 +52,7 @@ def getPixelWallData():
         l.append(w)
         w = l
     # filter visible area
-    wall = dict()
+    wall = np.full((img.shape[0], img.shape[1], 3), 255, np.uint8)
     for pixel in w:
         if y_offset <= pixel["y"] < y_offset + y_res and \
                 x_offset <= pixel["x"] < x_offset + x_res:
@@ -63,11 +63,8 @@ def getPixelWallData():
 def updateDrawPixels():
     # add already set pixels which might need to be re-drawn
     # TODO do this without loop? but the wall is full of wholes
-    overdraw = np.full_like(white_pixels, False)
-    for k, v in wall.items():
-        overdraw[k[0], k[1]] = np.any(img[k[0], k[1], :3] != v)
-
-    return static_draw + (~transparent_pixels * overdraw)
+    same = np.all(img[..., :3] == wall, axis=-1)
+    return ~(same + transparent_pixels)
 
 
 def getPixel(new_format=True):

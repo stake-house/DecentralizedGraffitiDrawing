@@ -278,7 +278,7 @@ def export():
                 color = format(pixel[2], '02x')
                 color += format(pixel[1], '02x')
                 color += format(pixel[0], '02x')
-                out_json.append({"x": j + x_offset, "y": i + y_offset, "color": "#" + color})
+                out_json.append({"x": j + x_offset, "y": i + y_offset, "color": color})
     with open('graffiti.json', 'w') as graffiti_file:
         graffiti_file.write(json.dumps(out_json))
     print("exported " + str(len(out_json)) + " pixels")

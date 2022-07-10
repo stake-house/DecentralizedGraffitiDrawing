@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/go-co-op/gocron"
-	"github.com/namsral/flag"
 	"io"
 	"log"
 	"math/rand"
@@ -17,6 +14,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/go-co-op/gocron"
+	"github.com/namsral/flag"
 )
 
 type GraffitiWallPixel struct {
@@ -88,11 +89,13 @@ func fetchGraffitiWall() bool {
 }
 
 func init() {
-	flag.StringVar(&OutputFile, "output_file", "/graffiti/graffiti.txt", "File to write graffiti to")
+	fmt.Printf("\n   +--------------------------+\n  /** Graffiti Wall Drawer **/\n +--------------------------+\n\nMade with passion by BenV and RamiRond.\n\n")
+
+	flag.StringVar(&OutputFile, "output_file", "/graffiti/graffiti.txt", "File to write graffiti output to. Will be overwritten!")
 	flag.StringVar(&InputURL, "input_url", "/graffiti/imagedata.json", "URL or path to file to source pixeldata from")
 	flag.StringVar(&ConsensusClient, "consensus_client", "", "teku, nimbus, lighthouse, prysm")
 	flag.StringVar(&NimbusURL, "nimbus_url", "", "URL to Nimbus (if that's your selected client), e.g. http://127.0.0.1:5052")
-	flag.StringVar(&GraffitiPrefix, "graffiti_prefix", "", "Optional graffiti prefix, e.g. 'RPL-L v1.2.3'. Not for Gnosis network (yet).")
+	flag.StringVar(&GraffitiPrefix, "graffiti_prefix", "", "Optional graffiti prefix, e.g. 'RPL-L v1.2.3'.")
 	flag.StringVar(&Network, "network", "mainnet", "Network to draw own, e.g. mainnet, gnosis, prater")
 	flag.IntVar(&UpdateWallTime, "update_wall_time", 600, "Time between beaconcha.in updates")
 	flag.IntVar(&UpdateInputTime, "update_input_time", 600, "Time between input updates - only if remote URL is used. File will be instantly reloaded when changed.")
@@ -111,8 +114,12 @@ func init() {
 	if len(GraffitiPrefix) > 16 {
 		log.Printf("WARNING: graffiti prefix is too long, will be truncated to [%.16s]!", GraffitiPrefix)
 	}
-	if Network == "gnosis" && len(GraffitiPrefix) > 0 {
-		log.Printf("WARNING: graffiti prefix is disabled for Gnosis right now!")
+	if len(OutputFile) == 0 {
+		log.Fatalf("Fatal: empty output filename provided, please specify where you want the output to be written to!")
+	}
+	fi, err := os.Stat(OutputFile)
+	if err == nil && fi.IsDir() {
+		log.Fatalf("Fatal: output file [%s] is a directory! Please change/remove it and try again.\n", OutputFile)
 	}
 	if UpdatePixelTime <= 0 {
 		UpdatePixelTime = 60
@@ -157,6 +164,19 @@ func init() {
 			log.Fatalf("Input file %s is not working for us :/\n", InputURL)
 		}
 	}
+
+	// Let's try to write an initial graffiti file so we don't block any VC that won't start without one.
+	if _, err := os.Stat(OutputFile); os.IsNotExist(err) {
+		graffiti := ""
+		if len(GraffitiPrefix) > 0 {
+			graffiti = strings.TrimSpace(fmt.Sprintf("%.16s %s", GraffitiPrefix, graffiti))
+		}
+		if writeGraffiti(graffiti) {
+			log.Printf("Absent graffiti file -> wrote template to [%s] to prevent blocking VC from starting...\n", OutputFile)
+		} else {
+			log.Printf("WARNING: Could not write graffiti-file [%s] -- your VC might refuse to start without it!", OutputFile)
+		}
+	}
 }
 
 func updateInput() bool {
@@ -187,7 +207,7 @@ func updateInput() bool {
 	return true
 }
 
-func updateGraffiti() {
+func updateGraffiti() bool {
 	log.Printf("Updating graffiti...\n")
 
 	// Recalculate todo pixels if anything changed
@@ -195,11 +215,11 @@ func updateGraffiti() {
 		// make sure we have a graffiti wall already, otherwise we'll wait till next run
 		if wallCache == nil {
 			log.Printf("Wall not available yet, waiting...\n")
-			return
+			return false
 		}
 		if inputCache == nil {
 			log.Printf("Input data not available yet, waiting...\n")
-			return
+			return false
 		}
 
 		dataChanged = false
@@ -234,58 +254,59 @@ func updateGraffiti() {
 	// grab pixel, generate graffiti, output
 	if todoPixels == nil {
 		log.Printf("No todoPixels data available yet. Retry soon...\n")
-		return
+		return false
 	}
 	if len(todoPixels.Data) == 0 {
 		log.Printf("Zero todoPixels available... no graffiti for now.... [guard mode]\n")
-		return
+		return false
 	}
 	index := rand.Intn(len(todoPixels.Data))
 	pixel := todoPixels.Data[index]
 	log.Printf(" * Randomly selected todo pixel: [%d,%d] #%s\n", pixel.X, pixel.Y, pixel.Color)
 
 	// Format graffiti and send it out
-	pre := ""
-	post := ""
-	switch ConsensusClient {
-	case "lighthouse":
-		pre = `default: `
-	case "prysm":
-		pre = `ordered:\n  - "`
-		post = `"`
-	}
-
-	graffiti := getGraffiti(pixel, Network != "gnosis")
-
-	if Network != "gnosis" && len(GraffitiPrefix) > 0 {
+	graffiti := getGraffiti(pixel)
+	if len(GraffitiPrefix) > 0 {
 		// pixel is 15, so we've 17 left
 		graffiti = strings.TrimSpace(fmt.Sprintf("%.16s %s", GraffitiPrefix, graffiti))
 	}
-	graffiti = fmt.Sprintf("%s%s%s", pre, graffiti, post)
+	return writeGraffiti(graffiti)
+}
 
+func getGraffitiTemplate() string {
+	// Returns a consensus-client specific template that works for Sprintf
+	template := "%s"
+	switch ConsensusClient {
+	case "lighthouse":
+		template = `default: %s`
+	case "prysm":
+		template = `ordered:\n  - "%s"`
+	}
+	return template
+}
+
+func writeGraffiti(graffiti string) bool {
+	graffiti = fmt.Sprintf(getGraffitiTemplate(), graffiti)
 	if ConsensusClient == "nimbus" {
 		err := setNimbusGraffiti(graffiti)
 		if err != nil {
-			log.Printf(" ❌ WARNING: Could not set Nimbus graffiti to %s: %s\n", graffiti, err)
-			return
+			log.Printf(" ❌ WARNING: Could not set Nimbus graffiti to [%s]: %s\n", graffiti, err)
+			return false
 		}
 	} else {
 		tmp := []byte(fmt.Sprintf("%s\n", graffiti))
 		err := os.WriteFile(OutputFile, tmp, 0644)
 		if err != nil {
-			log.Printf(" ❌ WARNING: Could not write graffiti %s to %s: %s\n", graffiti, OutputFile, err)
-			return
+			log.Printf(" ❌ WARNING: Could not write graffiti %s to [%s]: %s\n", graffiti, OutputFile, err)
+			return false
 		}
 	}
-	log.Printf(" ✅ graffiti update OK.\n")
+	log.Printf(" ✅ graffiti update OK [%s].\n", graffiti)
+	return true
 }
 
-func getGraffiti(pixel DrawerPixel, newFormat bool) string {
-	if newFormat {
-		return fmt.Sprintf("gw:%03d%03d%s", pixel.X, pixel.Y, pixel.Color)
-	} else {
-		return fmt.Sprintf("graffitiwall:%d:%d:%s", pixel.X, pixel.Y, pixel.Color)
-	}
+func getGraffiti(pixel DrawerPixel) string {
+	return fmt.Sprintf("gw:%03d%03d%s", pixel.X, pixel.Y, pixel.Color)
 }
 
 func setNimbusGraffiti(graffiti string) error {
@@ -301,7 +322,15 @@ func setNimbusGraffiti(graffiti string) error {
 	}
 	defer r.Body.Close()
 	reply, _ := io.ReadAll(r.Body)
-	log.Printf("Server at %s accepted our graffiti, response code: %d, response body of %d bytes\n", url, r.StatusCode, len(reply))
+	if r.StatusCode > 199 && r.StatusCode < 399 {
+		log.Printf("Server at %s accepted our graffiti, response code: %d, response body of %d bytes\n", url, r.StatusCode, len(reply))
+	} else {
+		log.Printf("Server at %s did NOT accept our graffiti! Response code: %d, response body of %d bytes\n", url, r.StatusCode, len(reply))
+		if len(reply) > 0 {
+			log.Printf("Response (first 2048 chars):\n=====\n%.2048s\n=====\n", reply)
+		}
+		return fmt.Errorf("Invalid response from Nimbus API call, code %d", r.StatusCode)
+	}
 	return nil
 }
 
@@ -348,6 +377,7 @@ func writeWatcher(watcher *fsnotify.Watcher) {
 }
 
 func main() {
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	done := make(chan bool, 1)

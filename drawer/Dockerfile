@@ -14,12 +14,12 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-WORKDIR $GOPATH/src/godrawer/
+WORKDIR $GOPATH/src/drawer/
 COPY . .
 
 ENV CGO_ENABLED=0
 RUN go mod download
-RUN go build -ldflags="-w -s" -o /go/bin/godrawer
+RUN go build -ldflags="-w -s" -o /go/bin/drawer
 
 FROM scratch
 
@@ -27,8 +27,8 @@ FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
-COPY --from=builder /go/bin/godrawer /go/bin/godrawer
+COPY --from=builder /go/bin/drawer /go/bin/drawer
 
 USER rpl:rpl
 
-ENTRYPOINT ["/go/bin/godrawer"]
+ENTRYPOINT ["/go/bin/drawer"]

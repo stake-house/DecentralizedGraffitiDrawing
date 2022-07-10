@@ -1,0 +1,39 @@
+name: Release Graffiti Tools
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  releases-matrix:
+    name: Create Graffiti Release Packages
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # build and publish in parallel: linux/amd64, linux/arm64, windows/amd64, darwin/amd64, darwin/arm64
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        exclude:
+          - goarch: arm64
+            goos: windows
+
+    steps:
+      - name: Get Release Info
+        run: |
+          echo "RELEASE_TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+          echo "REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+          echo "OS_NAME=${{ matrix.goos }}" >> $GITHUB_ENV
+      - name: OS darwin
+        if: matrix.goos == 'darwin'
+        run: echo "OS_NAME=macOS" >> $GITHUB_ENV
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@v1.29
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          md5sum: false
+          project_path: "./drawer"
+          binary_name: "drawer"
+          extra_files: doc examples rocketpool viewer README.md
+          asset_name: '${{ env.REPOSITORY_NAME }}-${{ env.RELEASE_TAG }}-${{ env.OS_NAME }}-${{ matrix.goarch }}'

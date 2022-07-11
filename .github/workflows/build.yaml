@@ -1,0 +1,30 @@
+name: Build Graffiti Tools
+on: [push, pull_request]
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        goarch: [amd64, arm64]
+        exclude:
+          - os: windows-latest
+            goarch: arm64
+
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v3
+      - name: Setup
+        uses: actions/setup-go@v3
+      - name: Build
+        working-directory: ./drawer
+        run: env GOARCH=${{ matrix.goarch }} go build .
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts-${{ matrix.os }}_${{ matrix.goarch }}
+          path: |
+            drawer/drawer
+            drawer/drawer.exe

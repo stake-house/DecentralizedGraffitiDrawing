@@ -363,6 +363,9 @@ if __name__ == "__main__":
     if not os.path.isabs(file):
         file = os.path.dirname(os.path.abspath(__file__)) + "/" + file
     orig_img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
+    if orig_img is None:
+        print("Can't load image " + file)
+        exit(1)
     y_res, x_res, channels = orig_img.shape
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))

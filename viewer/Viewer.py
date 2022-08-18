@@ -3,6 +3,7 @@ import requests
 import cv2
 import configparser
 import numpy as np
+import json
 
 
 def getPixelWallData():
@@ -232,6 +233,7 @@ def printHelp():
     print(" 1               List execution layer addresses of drawing participants for your image (eg. for POAPs)")
     print(" 2               List validator addresses of drawing participants for your image")
     print(" f               Save your current image configuration to settings.ini")
+    print(" e               Export your current image to graffiti.json")
     print(" x               Filter by execution layer address")
     print(" q, ESC          Close application")
 
@@ -262,6 +264,24 @@ def toggleAddressFilter():
     global eth1FilterEnabled
     eth1FilterEnabled = not eth1FilterEnabled
     repaint()
+
+
+def export():
+    # we need to loop anyways
+    # visible = img[..., 3] != 0
+    # in_json = json.dumps(img[np.where(visible)].tolist())
+    out_json = list()
+    for i in range(img.shape[0]):
+        for j in range(img.shape[1]):
+            pixel = img[i, j]
+            if pixel[3] > 0:
+                color = format(pixel[2], '02x')
+                color += format(pixel[1], '02x')
+                color += format(pixel[0], '02x')
+                out_json.append({"x": j + x_offset, "y": i + y_offset, "color": color})
+    with open('graffiti.json', 'w') as graffiti_file:
+        graffiti_file.write(json.dumps(out_json))
+    print("exported " + str(len(out_json)) + " pixels")
 
 
 def show(title):
@@ -298,6 +318,8 @@ def show(title):
             toggleProgressFilter()
         elif k == 'i':
             nextInterpolationMode()
+        elif k == 'e':
+            export()
         elif k == 'x':
             toggleAddressFilter()
         elif k == 'c':

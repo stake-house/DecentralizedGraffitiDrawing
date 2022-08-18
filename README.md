@@ -1,24 +1,18 @@
 # Decentralized Graffiti Drawing
 
-These tools help you draw images on the beaconcha.in graffitiwall for 
-[pyrmont](https://pyrmont.beaconcha.in/graffitiwall) or
-[mainnet](https://beaconcha.in/graffitiwall). 
+These tools help you draw images on the beaconcha.in graffitiwall
+[beaconcha.in graffitiwall](https://beaconcha.in/graffitiwall). 
 First, use the Viewer to generate a config representing your image on the wall.
 Then share it with your friends and start drawing together!
-
-![Rocketpool](rocketpool/desired.png "Default settings")
-
 
 ## Requirements
 For the viewer you need python3 with some libraries. 
 Install dependencies with `pip install -r requirements.txt`.
-It should support all four clients on amd64 and arm64 (raspberry pi & co).
 
 For the new golang version of the drawer there are no additional dependencies.
 
 ## Rocketpool users
-While this tool can be used by any eth2 staker, here is an easy solution for rocketpool
-users. The first image we decided to draw is the Rocket Pool logo.
+While this tool can be used by any eth2 staker, here is an easy solution for rocketpool users. The first image we decided to draw is the Rocket Pool logo.
 By following the instructions you can help drawing! Once we're done there will be a new image.
 
 Starting from version v1.?.?(TODO) this drawer has been included as official Rocket Pool addon!
@@ -35,12 +29,10 @@ Enabling it is easy:
 
 
 ## Viewer
-The viewer loads the current graffitiwall as well as an image. You can move it around or
-scale it until you found your favorite spot. Once you're done, you can save your
-desired configuration, so it can be picked up by the Drawer.
+The viewer loads the current graffitiwall as well as an image. Check out `settings.ini` to specify details. You can move it around or scale it until you found your favorite spot. Once you're done, you can save your desired configuration, so it can be picked up by the Drawer in the next step.
 ### Usage:
 `python3 Viewer.py` \
-You can move, scale, hide etc. your image. Press `h` while the viewer window is active to show all options.
+You can move, scale, hide etc. your image. Press `h` while the viewer window is active to show all options. Once you are happy, press `e` to generate your `graffiti.json`. This will be used by the drawer in the next step.
 
 <img src="https://raw.githubusercontent.com/RomiRand/rpl_graffiti/main/doc/overpaint.png" width="400">
 
@@ -53,7 +45,7 @@ Our rocketpool logo input file has been included [in this repo](rocketpool/graff
 ### Usage
 Check out `./drawer -help` for available parameters. You need to specify your client because
 they each expect the graffiti file to be in a specific format. \
-Example: `drawer -network pyrmont -consensus_client=lighthouse -out-file /mnt/ssd/lighthouse/graffiti.txt -input-url=../rocketpool/graffiti.json`
+Example: `drawer -network mainnet -consensus_client=lighthouse -out-file /mnt/ssd/lighthouse/graffiti.txt -input-url=../rocketpool/graffiti.json`
 
 Lighthouse, Teku and Prysm read the generated graffiti from a file.
 Nimbus gets updated [via REST API](https://nimbus.guide/rest-api.html#set-graffiti-string).\
@@ -68,9 +60,6 @@ Also don't forget restarting your eth2 validator client with the graffiti file s
 - [Nimbus](https://nimbus.guide/rest-api.html#configure-your-node-to-run-a-local-rest-server): `nimbus_beacon_node --rest`
 NOTE: Certain clients (e.g. lighthouse) will refuse to run if the graffiti-file does not exist!
 
-### Contributing
-If you find any issues or want to help developing this tool, you can open an issue.
-Also, feel free to contact me for feedback.
 
 ### Disclaimer
 In theory, these tools won't affect your staking performance, but the authors make no promises.

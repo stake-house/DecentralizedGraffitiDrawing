@@ -280,7 +280,7 @@ func getGraffitiTemplate() string {
 	case "lighthouse":
 		template = `default: %s`
 	case "prysm":
-		template = `ordered:\n  - "%s"`
+		template = `ordered:` + "\n" + `  - "%s"`
 	}
 	return template
 }

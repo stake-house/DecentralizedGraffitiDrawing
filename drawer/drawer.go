@@ -242,7 +242,8 @@ func updateGraffiti() bool {
 				continue
 			}
 			// Is it already drawn?
-			if wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] == strings.ToLower(pixel.Color) {
+			if wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] == strings.ToLower(pixel.Color) ||
+			(len(wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)]) == 0 && strings.ToLower(pixel.Color) == "ffffff") {
 				completed++
 			} else {
 				todoPixels.Data = append(todoPixels.Data, pixel)

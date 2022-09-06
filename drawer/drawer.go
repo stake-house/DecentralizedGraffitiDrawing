@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -18,6 +19,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
 	"github.com/namsral/flag"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type GraffitiWallPixel struct {
@@ -55,37 +59,96 @@ var (
 	UpdatePixelTime int
 	BeaconURL       string
 	GraffitiPrefix  string
+	MetricsEnabled  bool
+	MetricsAddress  string
 	wallCache       *GraffitiWall
 	inputCache      *DrawerData
 	todoPixels      *DrawerData
 	dataChanged     bool
+
+	// Prometheus stats
+	promRPLTotalPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_total",
+			Help: "Total number of pixels to be drawn (including already drawn), split by type",
+		},
+		[]string{"type"})
+	promRPLTODOPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_todo",
+			Help: "Number of pixels still to be drawn, split by type",
+		},
+		[]string{"type"})
+	promRPLDrawSpeed = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_speed",
+			Help: "Number of pixels be drawn in the last 24 hours",
+		},
+		[]string{"section"})
+	promFetchLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gww_http_request_duration_seconds",
+			Help:    "HTTP request latency in seconds.",
+			Buckets: prometheus.LinearBuckets(0.01, 0.05, 10),
+		},
+		[]string{"url", "status"},
+	)
 )
 
 func getJson(url string, target interface{}) error {
+	var status string
+	var timer *prometheus.Timer
+
 	log.Printf("Fetching %s for json result....\n", url)
 	client := &http.Client{Timeout: 10 * time.Second}
+
+	if MetricsEnabled {
+		timer = prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+			promFetchLatency.WithLabelValues(url, status).Observe(v)
+		}))
+	}
+
 	r, err := client.Get(url)
 	if err != nil {
 		return err
 	}
+
+	if MetricsEnabled {
+		status = fmt.Sprintf("%d", r.StatusCode)
+		timer.ObserveDuration()
+	}
+
 	defer r.Body.Close()
+	if r.StatusCode < 200 || r.StatusCode > 299 {
+		log.Printf("WARNING: Fetch of %s returned unexpected code: %d (%s) - retrying later...\n", url, r.StatusCode, http.StatusText(r.StatusCode))
+		return nil
+	}
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
 func fetchGraffitiWall() bool {
-	wallCache = &GraffitiWall{}
+	newWallCache := &GraffitiWall{}
 
-	err := getJson(BeaconURL, wallCache)
+	err := getJson(BeaconURL, newWallCache)
 	if err != nil {
-		log.Fatalln(err)
+		log.Printf("WARNING: Error fetching beaconcha.in graffitiwall: %s\n", err)
+		return false
 	}
-	if wallCache.Status != "OK" {
-		log.Printf("WARNING: Unpexpected beaconcha.in graffitiwall status: %s\n", wallCache.Status)
+	if newWallCache.Status != "OK" {
+		log.Printf("WARNING: Unpexpected beaconcha.in graffitiwall status: %s\n", newWallCache.Status)
+		return false
 	} else {
-		log.Printf("Graffitiwall fetched from beaconcha.in, status: %s\n", wallCache.Status)
+		log.Printf("Graffitiwall fetched from beaconcha.in, status: %s\n", newWallCache.Status)
+		wallCache = newWallCache
 	}
-
 	return true
+}
+
+func guessCurrentSlot() uint {
+	// We have no proper way of obtaining this, so we'll calculate it. It's good enough for 24 hour estimates.
+	genesis := time.Date(2020, 12, 1, 12, 0, 0, 0, time.UTC)
+	secondsSinceGenesis := time.Since(genesis).Seconds()
+	return uint(math.Round(secondsSinceGenesis / 12))
 }
 
 func init() {
@@ -100,6 +163,8 @@ func init() {
 	flag.IntVar(&UpdateWallTime, "update_wall_time", 600, "Time between beaconcha.in updates")
 	flag.IntVar(&UpdateInputTime, "update_input_time", 600, "Time between input updates - only if remote URL is used. File will be instantly reloaded when changed.")
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
+	flag.BoolVar(&MetricsEnabled, "metrics_enabled", true, "Enable metrics server")
+	flag.StringVar(&MetricsAddress, "metrics_address", ":9106", " Metrics listen [address]:port")
 	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
@@ -184,7 +249,8 @@ func updateInput() bool {
 	if InputIsURL {
 		err := getJson(InputURL, &newData.Data)
 		if err != nil {
-			log.Fatalf("ERROR: Could not parse input data from supplied URL [%s]: %s\n", InputURL, err)
+			log.Printf("ERROR: Could not parse input data from supplied URL [%s]: %s\n", InputURL, err)
+			return false
 		}
 	} else {
 		inputFile, err := os.Open(InputURL)
@@ -226,13 +292,23 @@ func updateGraffiti() bool {
 		todoPixels = &DrawerData{}
 
 		// Make a lookup dict for walldata
-		wallCheck := make(map[string]string)
-		for _, pixel := range wallCache.Data {
-			// TODO: sanity check on beacon wall data, for now we'll just accept it since we're only comparing against it
-			wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] = strings.ToLower(pixel.Color)
+		curSlot := guessCurrentSlot()
+		pixelsPerDayGlobal := 0
+		wallCheck := make(map[string]*GraffitiWallPixel)
+		for _, p := range wallCache.Data {
+			pixel := p // get a unique pointer, thanks go
+			wallCheck[fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)] = &pixel
+			if pixel.Slot >= (curSlot - 7200) {
+				pixelsPerDayGlobal++
+			}
 		}
 
 		completed := 0
+		skipped := 0
+		wrong := 0
+		pixelsPerDayRPL := 0
+		totalWhite := 0
+		todoWhite := 0
 		pcre := regexp.MustCompile(`^[a-f0-9]{6}$`)
 		for _, pixel := range inputCache.Data {
 			// Is this pixel sane?
@@ -242,14 +318,40 @@ func updateGraffiti() bool {
 				continue
 			}
 			// Is it already drawn?
-			if wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] == strings.ToLower(pixel.Color) ||
-				(len(wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)]) == 0 && strings.ToLower(pixel.Color) == "ffffff") {
+			checkIdx := fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)
+			// White pixels can be skipped, so empty entries are OK for them
+			if pixel.Color == "ffffff" {
+				totalWhite++
+			}
+			if wallCheck[checkIdx] == nil && pixel.Color == "ffffff" {
+				// White pixel, no need to draw
+				todoWhite++
+				skipped++
+			} else if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) == pixel.Color {
 				completed++
+				// Speed Stats
+				if wallCheck[checkIdx].Slot >= (curSlot - 7200) {
+					pixelsPerDayRPL++
+				} else {
+					// log.Printf("Pixel %s was drawn %07d slots ago [curslot %d vs %07d of this pixel]\n", checkIdx, curSlot - wallCheck[checkIdx].Slot, curSlot, wallCheck[checkIdx].Slot)
+				}
 			} else {
+				if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) != pixel.Color {
+					wrong++
+				}
 				todoPixels.Data = append(todoPixels.Data, pixel)
 			}
 		}
-		log.Printf("STATUS: TODO %d pixel(s), %d already painted!\n", len(todoPixels.Data), completed)
+		if MetricsEnabled {
+			promRPLTotalPixels.WithLabelValues("Normal").Set(float64(len(inputCache.Data) - totalWhite))
+			promRPLTotalPixels.WithLabelValues("White").Set(float64(totalWhite))
+			promRPLTODOPixels.WithLabelValues("Normal").Set(float64(len(todoPixels.Data) - wrong))
+			promRPLTODOPixels.WithLabelValues("White").Set(float64(todoWhite))
+			promRPLTODOPixels.WithLabelValues("Fix").Set(float64(wrong))
+			promRPLDrawSpeed.WithLabelValues("RPL").Set(float64(pixelsPerDayRPL))
+			promRPLDrawSpeed.WithLabelValues("Global").Set(float64(pixelsPerDayGlobal))
+		}
+		log.Printf("STATUS: TODO %d pixel(s) [%d wrong to fix], %d already painted, %d skipped/ignored since they're white!\n", len(todoPixels.Data), wrong, completed, skipped)
 	}
 
 	// grab pixel, generate graffiti, output
@@ -417,5 +519,19 @@ func main() {
 	}()
 
 	cron.StartAsync()
+
+	// Enable metrics if requested
+	h := &http.Server{Addr: MetricsAddress}
+	if MetricsEnabled {
+		go func() {
+			http.Handle("/metrics", promhttp.Handler())
+			if err := h.ListenAndServe(); err != nil {
+				log.Printf("Error trying to start Metrics server http://%s/metrics (will continue without)! %s\n", MetricsAddress, err)
+			} else {
+				log.Printf("Metrics Server listening at http://%s/metrics\n", MetricsAddress)
+			}
+		}()
+	}
+
 	<-done
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,9 +39,9 @@ type GraffitiWall struct {
 }
 
 type DrawerPixel struct {
-	X     uint   `json: x`
-	Y     uint   `json: y`
-	Color string `json: color`
+	X     uint   `json:"x"`
+	Y     uint   `json:"y"`
+	Color string `json:"color"`
 }
 
 type DrawerData struct {
@@ -61,10 +62,14 @@ var (
 	GraffitiPrefix  string
 	MetricsEnabled  bool
 	MetricsAddress  string
-	wallCache       *GraffitiWall
-	inputCache      *DrawerData
-	todoPixels      *DrawerData
-	dataChanged     bool
+	MyValidators    string
+
+	// Internal vars
+	wallCache    *GraffitiWall
+	inputCache   *DrawerData
+	todoPixels   *DrawerData
+	dataChanged  bool
+	myValidators []uint
 
 	// Prometheus stats
 	promRPLTotalPixels = promauto.NewGaugeVec(
@@ -82,9 +87,15 @@ var (
 	promRPLDrawSpeed = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gww_pixels_speed",
-			Help: "Number of pixels be drawn in the last 24 hours",
+			Help: "Number of pixels drawn in the last 24 hours",
 		},
 		[]string{"section"})
+	promRPLMyPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_mine",
+			Help: "Number of pixels drawn by my validators (as supplied)",
+		},
+		[]string{"validator"})
 	promFetchLatency = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "gww_http_request_duration_seconds",
@@ -160,6 +171,7 @@ func init() {
 	flag.StringVar(&NimbusURL, "nimbus_url", "", "URL to Nimbus (if that's your selected client), e.g. http://127.0.0.1:5052")
 	flag.StringVar(&GraffitiPrefix, "graffiti_prefix", "", "Optional graffiti prefix, e.g. 'RPL-L v1.2.3'.")
 	flag.StringVar(&Network, "network", "mainnet", "Network to draw own, e.g. mainnet, gnosis, prater")
+	flag.StringVar(&MyValidators, "my_validators", "", "Comma separated string of validator indices that will use the output of this drawer. E.g., 123,321. Only for metrics!")
 	flag.IntVar(&UpdateWallTime, "update_wall_time", 600, "Time between beaconcha.in updates")
 	flag.IntVar(&UpdateInputTime, "update_input_time", 600, "Time between input updates - only if remote URL is used. File will be instantly reloaded when changed.")
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
@@ -230,6 +242,21 @@ func init() {
 		}
 	}
 
+	// Parse my Validators
+	myValidators = make([]uint, 0, 10)
+	if len(MyValidators) > 0 {
+		for _, val := range strings.Split(MyValidators, ",") {
+			i, err := strconv.Atoi(val)
+			if err != nil {
+				log.Fatalf("Error parsing validator index %s, make sure you give the index and not the pubkey to my_validators! %s\n", val, err)
+			}
+			myValidators = append(myValidators, uint(i))
+		}
+		log.Printf("Registered validators for 'pixels drawn by me'-metrics: %+v", myValidators)
+	} else {
+		log.Printf("NOTE: No validators supplied as mine, thus pixels_mine metric will be absent!\n")
+	}
+
 	// Let's try to write an initial graffiti file so we don't block any VC that won't start without one.
 	if _, err := os.Stat(OutputFile); os.IsNotExist(err) {
 		graffiti := ""
@@ -242,6 +269,15 @@ func init() {
 			log.Printf("WARNING: Could not write graffiti-file [%s] -- your VC might refuse to start without it!", OutputFile)
 		}
 	}
+}
+
+func isMyValidator(index uint) bool {
+	for _, i := range myValidators {
+		if i == index {
+			return true
+		}
+	}
+	return false
 }
 
 func updateInput() bool {
@@ -309,6 +345,7 @@ func updateGraffiti() bool {
 		pixelsPerDayRPL := 0
 		totalWhite := 0
 		todoWhite := 0
+		myPixels := make(map[string]uint) // val idx -> pixels
 		pcre := regexp.MustCompile(`^[a-f0-9]{6}$`)
 		for _, pixel := range inputCache.Data {
 			// Is this pixel sane?
@@ -335,6 +372,14 @@ func updateGraffiti() bool {
 				} else {
 					// log.Printf("Pixel %s was drawn %07d slots ago [curslot %d vs %07d of this pixel]\n", checkIdx, curSlot - wallCheck[checkIdx].Slot, curSlot, wallCheck[checkIdx].Slot)
 				}
+				// Did we draw this?
+				if isMyValidator(wallCheck[checkIdx].Validator) {
+					vIdx := fmt.Sprintf("%d", wallCheck[checkIdx].Validator)
+					if _, ok := myPixels[vIdx]; !ok {
+						myPixels[vIdx] = 0
+					}
+					myPixels[vIdx]++
+				}
 			} else {
 				if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) != pixel.Color {
 					wrong++
@@ -350,6 +395,9 @@ func updateGraffiti() bool {
 			promRPLTODOPixels.WithLabelValues("Fix").Set(float64(wrong))
 			promRPLDrawSpeed.WithLabelValues("RPL").Set(float64(pixelsPerDayRPL))
 			promRPLDrawSpeed.WithLabelValues("Global").Set(float64(pixelsPerDayGlobal))
+			for vIdx, val := range myPixels {
+				promRPLMyPixels.WithLabelValues(vIdx).Set(float64(val))
+			}
 		}
 		log.Printf("STATUS: TODO %d pixel(s) [%d wrong to fix], %d already painted, %d skipped/ignored since they're white!\n", len(todoPixels.Data), wrong, completed, skipped)
 	}
@@ -495,7 +543,7 @@ func main() {
 		// Set watcher
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
-			log.Printf("WARNING: Failed to create input watcher for file, reverting to cron updates: ", err)
+			log.Printf("WARNING: Failed to create input watcher for file, reverting to cron updates: %s", err)
 			cron.Every(UpdateInputTime).Seconds().Do(updateInput)
 		} else {
 			go writeWatcher(watcher)

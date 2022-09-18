@@ -243,7 +243,7 @@ func updateGraffiti() bool {
 			}
 			// Is it already drawn?
 			if wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] == strings.ToLower(pixel.Color) ||
-			(len(wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)]) == 0 && strings.ToLower(pixel.Color) == "ffffff") {
+				(len(wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)]) == 0 && strings.ToLower(pixel.Color) == "ffffff") {
 				completed++
 			} else {
 				todoPixels.Data = append(todoPixels.Data, pixel)
@@ -311,8 +311,8 @@ func getGraffiti(pixel DrawerPixel) string {
 }
 
 func setNimbusGraffiti(graffiti string) error {
-	// We send the graffiti data directly to nimbus' api at NIMBUSURL/api/nimbus/v1/graffiti
-	url := fmt.Sprintf("%s%s", strings.TrimSuffix(NimbusURL, "/"), "/api/nimbus/v1/graffiti")
+	// We send the graffiti data directly to nimbus' api at NIMBUSURL/nimbus/v1/graffiti
+	url := fmt.Sprintf("%s%s", strings.TrimSuffix(NimbusURL, "/"), "/nimbus/v1/graffiti")
 	log.Printf("Sending graffiti [%s] to nimbus at %s...\n", graffiti, url)
 
 	// response = requests.post(url, headers=header, data=graffiti)

@@ -44,6 +44,16 @@ type DrawerPixel struct {
 	Color string `json:"color"`
 }
 
+type ValidatorLookup struct {
+	Status string
+	Data   []ValidatorLookupData
+}
+type ValidatorLookupData struct {
+	PublicKey      string `json:"publickey"`
+	ValidSignature bool   `json:"valid_signature"`
+	ValidatorIndex uint   `json:"validatorindex"`
+}
+
 type DrawerData struct {
 	Data []DrawerPixel
 }
@@ -171,7 +181,7 @@ func init() {
 	flag.StringVar(&NimbusURL, "nimbus_url", "", "URL to Nimbus (if that's your selected client), e.g. http://127.0.0.1:5052")
 	flag.StringVar(&GraffitiPrefix, "graffiti_prefix", "", "Optional graffiti prefix, e.g. 'RPL-L v1.2.3'.")
 	flag.StringVar(&Network, "network", "mainnet", "Network to draw own, e.g. mainnet, gnosis, prater")
-	flag.StringVar(&MyValidators, "my_validators", "", "Comma separated string of validator indices that will use the output of this drawer. E.g., 123,321. Only for metrics!")
+	flag.StringVar(&MyValidators, "my_validators", "", "Comma separated string of validator indices AND/OR eth1 depositor addresses [e.g. node address]\n\t\t(checked against https://beaconcha.in/api/v1/docs/index.html#/Validator/get_api_v1_validator_eth1__eth1address_) that use the output of this drawer.\n\t\tE.g., 123,321 or 0x0123456789abcdefedcba9876543210123456789. Used only for metrics!")
 	flag.IntVar(&UpdateWallTime, "update_wall_time", 600, "Time between beaconcha.in updates")
 	flag.IntVar(&UpdateInputTime, "update_input_time", 600, "Time between input updates - only if remote URL is used. File will be instantly reloaded when changed.")
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
@@ -225,6 +235,43 @@ func init() {
 		BeaconURL = fmt.Sprintf("https://%s.beaconcha.in/api/v1/graffitiwall", Network)
 	}
 
+	// Parse my Validators
+	myValidators = make([]uint, 0, 10)
+	eth1re := regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
+	if len(MyValidators) > 0 {
+		for _, val := range strings.Split(MyValidators, ",") {
+			// See if this is an eth1 address, if so query beaconchain.
+			if strings.HasPrefix(val, "0x") {
+				if !eth1re.MatchString(val) {
+					log.Fatalf("ERROR: Supplied validator pubkey input %s is not something we can handle at the moment, expecting 0x<40 hex chars>, e.g. 0xD33526068D116cE69F19A9ee46F0bd304F21A51f\n", val)
+				}
+				validators := &ValidatorLookup{}
+				lookupURL := fmt.Sprintf("https://beaconcha.in/api/v1/validator/eth1/%s", val)
+				log.Printf("My Validator supplied pubkey %s, looking up...", val)
+				err := getJson(lookupURL, &validators)
+				if err != nil {
+					log.Fatalf("ERROR: Validator lookup with key %s failed: %s\n", val, err)
+				}
+				if len(validators.Data) == 0 {
+					log.Printf("WARNING: Validator lookup results for pubkey %s had 0 entries. Typo? Wrong address? Make sure this is the address that made the deposits, e.g. rocket pool node address.\n", val)
+				}
+				for _, v := range validators.Data {
+					myValidators = append(myValidators, v.ValidatorIndex)
+				}
+			} else {
+				// Nope
+				i, err := strconv.Atoi(val)
+				if err != nil {
+					log.Fatalf("Error parsing validator index %s, make sure you give the index and not the pubkey to my_validators! %s\n", val, err)
+				}
+				myValidators = append(myValidators, uint(i))
+			}
+		}
+		log.Printf("Registered %d validators for 'pixels drawn by me'-metrics: %+v", len(myValidators), myValidators)
+	} else {
+		log.Printf("NOTE: No validators supplied as mine, thus pixels_mine metric will be absent!\n")
+	}
+
 	// Input remote or file?
 	re := regexp.MustCompile(`^https?://`)
 	if re.MatchString(InputURL) {
@@ -240,21 +287,6 @@ func init() {
 		if !updateInput() {
 			log.Fatalf("Input file %s is not working for us :/\n", InputURL)
 		}
-	}
-
-	// Parse my Validators
-	myValidators = make([]uint, 0, 10)
-	if len(MyValidators) > 0 {
-		for _, val := range strings.Split(MyValidators, ",") {
-			i, err := strconv.Atoi(val)
-			if err != nil {
-				log.Fatalf("Error parsing validator index %s, make sure you give the index and not the pubkey to my_validators! %s\n", val, err)
-			}
-			myValidators = append(myValidators, uint(i))
-		}
-		log.Printf("Registered validators for 'pixels drawn by me'-metrics: %+v", myValidators)
-	} else {
-		log.Printf("NOTE: No validators supplied as mine, thus pixels_mine metric will be absent!\n")
 	}
 
 	// Let's try to write an initial graffiti file so we don't block any VC that won't start without one.
@@ -573,10 +605,9 @@ func main() {
 	if MetricsEnabled {
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
+			log.Printf("Trying to start Metrics Server at http://%s/metrics\n", MetricsAddress)
 			if err := h.ListenAndServe(); err != nil {
 				log.Printf("Error trying to start Metrics server http://%s/metrics (will continue without)! %s\n", MetricsAddress, err)
-			} else {
-				log.Printf("Metrics Server listening at http://%s/metrics\n", MetricsAddress)
 			}
 		}()
 	}

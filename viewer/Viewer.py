@@ -207,7 +207,7 @@ def onMouseEvent(event, x, y, flags, param):
 
 
 def eth2addresses():
-    eth2_addresses = set()
+    eth2_addresses = dict()
     for pixel in wall_data:
         x = pixel["x"]
         y = pixel["y"]
@@ -215,8 +215,12 @@ def eth2addresses():
         if x_offset <= x < x_offset + x_res and \
            y_offset <= y < y_offset + y_res:
             if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == img[y - y_offset, x - x_offset, :3]):
-                eth2_addresses.add(str(pixel["validator"]))
-    return list(eth2_addresses)
+                key = str(pixel["validator"])
+                if key not in eth2_addresses:
+                    eth2_addresses[key] = 1
+                else:
+                    eth2_addresses[key] += 1
+    return dict(sorted(eth2_addresses.items(), key=lambda item: item[1], reverse=True))
 
 
 def printHelp():
@@ -238,11 +242,11 @@ def printHelp():
     print(" q, ESC          Close application")
 
 def eth1addresses():
-    val_addresses = eth2addresses()
+    val_addresses = list(eth2addresses().keys())
     if len(val_addresses) == 0:
         print("No pixels yet")
         return set()
-    eth1_addresses = set()
+    eth1_addresses = dict()
     for i in range(0, len(val_addresses), 100):
         validators = ','.join(val_addresses[i:i+100])
         try:
@@ -251,13 +255,22 @@ def eth1addresses():
             print("can't reach graffitiwall")
             return ""
         data = page.json()['data']
-        if type(data) is dict:
-            eth1_addresses.add(data['from_address'])
-        else:
+        if type(data) is not dict:
             for validator in data:
-                eth1_addresses.add(validator["from_address"])
+                key = validator["from_address"]
+                if key not in eth1_addresses:
+                    eth1_addresses[key] = 1
+                else:
+                    eth1_addresses[key] += 1
+        else:
+            key = data['from_address']
+            if key not in eth1_addresses:
+                eth1_addresses[key] = 1
+            else:
+                eth1_addresses[key] += 1
+            
     
-    return eth1_addresses
+    return dict(sorted(eth1_addresses.items(), key=lambda item: item[1], reverse=True))
 
 
 def toggleAddressFilter():
@@ -328,16 +341,18 @@ def show(title):
             print("Pixels left:    " + str(left_pixels) + "\n\n")
         elif k == '1':
             print("\n\n --- Participating execution layer addresses: ")
+            print("\n                  Address                   Count\n")
             eth1 = eth1addresses()
-            for add in eth1:
-                print(add)
-            print(" --- " + str(len(eth1)) + " total\n")
+            for addr in eth1:
+                print(addr, "|", eth1[addr])
+            print(" ---", str(len(eth1)), "participants total\n")
         elif k == '2':
             print("\n\n --- Participating validator indices: ")
+            print("\n Index  Count\n")
             eth2 = eth2addresses()
-            for add in eth2:
-                print(add)
-            print(" --- " + str(len(eth2)) + " total\n")
+            for index in eth2:
+                print(index.rjust(6), "|", eth2[index])
+            print(" ---", str(len(eth2)), "participants total\n")
         elif k == 'f':  # c == 19 to ctrl + s, but for qt backend only ?
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key

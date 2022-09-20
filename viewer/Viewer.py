@@ -69,38 +69,35 @@ def paintWall():
         loadIndices()
     for pixel in wall_data:
         if eth1FilterEnabled and pixel["validator"] not in indices:
-            new_pixel = [255, 255, 255]
+            new_pixel = [255, 255, 255, NOT_DRAWN]
         else:
             new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
+            new_pixel += (DRAWN,)
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
-
-counted = False
 def paintImage():
-    global wall, img, left_pixels, right_pixels, total_pixels, counted
+    global wall, img, need_to_set, visible, correct_pixels, wall_part, white_pixels_drawn
     if hide:
         return
     visible = img[..., 3] != 0
     wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
     # This looks too complicated. If you know how to do this better, feel free to improve
-    same = np.all(img[..., :3] == wall_part, axis=-1)  # correct pixels set to true, but doesn't filter transparent
+    same = np.all(img[..., :3] == wall_part[..., :3], axis=-1)  # correct pixels set to true, but doesn't filter transparent
     correct_pixels = same + ~visible
     need_to_set = ~correct_pixels
-    if not counted:
-        left_pixels = np.sum(need_to_set)
-        total_pixels = np.sum(visible)
-        right_pixels = np.sum(correct_pixels) - np.sum(~visible)
-        counted = True
-    mask2 = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
+    mask2 = np.repeat(need_to_set[..., np.newaxis], 4, axis=2)
+    white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
+    white_drawn = np.all(wall_part[..., :4] == [255, 255, 255, 1], axis=-1)
+    white_pixels_drawn = np.sum(white_img & white_drawn & visible)
     if not progressFilterEnabled:
-        np.copyto(wall_part, img[..., :3], where=mask2)
+        np.copyto(wall_part, img, where=mask2)
     else:
-        np.copyto(wall_part, np.array([0, 0, 255], dtype=np.uint8), where=mask2)
+        np.copyto(wall_part, np.array([0, 0, 255, 255], dtype=np.uint8), where=mask2)
         need_to_not_set = ~(~same + ~visible)
-        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 3, axis=2)
+        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 4, axis=2)
         # this now includes white pixels if they're visible (alpha > 0)
         # depending on your input image the output may looks unexpected, but should be correct
-        np.copyto(wall_part, np.array([0, 255, 0], dtype=np.uint8), where=mask3)
+        np.copyto(wall_part, np.array([0, 255, 0, 255], dtype=np.uint8), where=mask3)
 
 
 def getPixelInfo(x, y):
@@ -117,9 +114,11 @@ def getPixelInfo(x, y):
     return ""
 
 
+NOT_DRAWN = 0
+DRAWN = 1
 def repaint():
     global wall, wall2
-    wall = np.full((1000, 1000, 3), 255, np.uint8)
+    wall = np.full((1000, 1000, 4), [255, 255, 255, NOT_DRAWN], np.uint8)
     if overpaint or progressFilterEnabled:
         paintWall()
         paintImage()
@@ -214,7 +213,7 @@ def eth2addresses():
         # 1. is near our image
         if x_offset <= x < x_offset + x_res and \
            y_offset <= y < y_offset + y_res:
-            if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == img[y - y_offset, x - x_offset, :3]):
+            if np.all(tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0)) == img[y - y_offset, x - x_offset, :3]) and img[y - y_offset, x - x_offset, 3] > 0:
                 key = str(pixel["validator"])
                 if key not in eth2_addresses:
                     eth2_addresses[key] = 1
@@ -242,41 +241,63 @@ def printHelp():
     print(" q, ESC          Close application")
 
 def eth1addresses():
-    val_addresses = list(eth2addresses().keys())
-    if len(val_addresses) == 0:
+    pixels_per_validator = eth2addresses()
+    # beaconcha.in api returns them sorted by index, so we sort them to
+    val_indices = list(sorted(pixels_per_validator.keys()))
+    if len(val_indices) == 0:
         print("No pixels yet")
         return set()
     eth1_addresses = dict()
-    for i in range(0, len(val_addresses), 100):
-        validators = ','.join(val_addresses[i:i+100])
+    for i in range(0, len(val_indices), 100):
+        validators = ','.join(val_indices[i:i+100])
         try:
             page = requests.get(baseUrl + "validator/" + validators + "/deposits")
         except requests.exceptions.RequestException as _:
             print("can't reach graffitiwall")
             return ""
         data = page.json()['data']
-        if type(data) is not dict:
-            for validator in data:
-                key = validator["from_address"]
-                if key not in eth1_addresses:
-                    eth1_addresses[key] = 1
-                else:
-                    eth1_addresses[key] += 1
-        else:
-            key = data['from_address']
+        deposit_list = list()
+        # If there's just a single deposit it won't be delivered in a list
+        if type(data) is not list:
+            deposit_list.append(data)
+        depositors_per_validator = dict() # validator pub key -> set of depositors
+        # Every depositor gets credited a drawn pixel this way
+        # We could also credit the pixel to the max depositor only, but it's fine for now
+        j = i + 0
+        for validator in data:
+            key = validator["from_address"]
+            if validator["publickey"] not in depositors_per_validator:
+                depositors_per_validator[validator["publickey"]] = set()
+            if key in depositors_per_validator[validator["publickey"]]:
+                continue
+            depositors_per_validator[validator["publickey"]].add(key)
             if key not in eth1_addresses:
-                eth1_addresses[key] = 1
+                eth1_addresses[key] = pixels_per_validator[val_indices[j]]
             else:
-                eth1_addresses[key] += 1
-            
-    
+                eth1_addresses[key] += pixels_per_validator[val_indices[j]]
+            j += 1
+
     return dict(sorted(eth1_addresses.items(), key=lambda item: item[1], reverse=True))
 
 
 def toggleAddressFilter():
     global eth1FilterEnabled
+    if len(address) == 0:
+        print("Please enter your deposit address in settings.ini")
+        return
     eth1FilterEnabled = not eth1FilterEnabled
     repaint()
+
+
+def countPixels():
+    white = np.all(img[..., :3] == [255, 255, 255], axis=-1)
+    left_pixels = np.sum(need_to_set)
+    white_pixels = np.sum(white & visible)
+    total_pixels = np.sum(visible)
+    right_pixels = np.sum(correct_pixels) - np.sum(~visible)
+    print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " transparent)")
+    print("Correct pixels: " + str(right_pixels), "(" + str(white_pixels), "of those are white, of which", str(white_pixels_drawn), "have been drawn anyways)")
+    print("Pixels left:    " + str(left_pixels) + "\n\n")
 
 
 def export():
@@ -298,7 +319,6 @@ def export():
 
 
 def show(title):
-    global count
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
@@ -336,23 +356,25 @@ def show(title):
         elif k == 'x':
             toggleAddressFilter()
         elif k == 'c':
-            print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " invisible)")
-            print("Correct pixels: " + str(right_pixels))
-            print("Pixels left:    " + str(left_pixels) + "\n\n")
+            countPixels()
         elif k == '1':
             print("\n\n --- Participating execution layer addresses: ")
             print("\n                  Address                   Count\n")
             eth1 = eth1addresses()
+            total = 0
             for addr in eth1:
                 print(addr, "|", eth1[addr])
-            print(" ---", str(len(eth1)), "participants total\n")
+                total += eth1[addr]
+            print(" ---", str(len(eth1)), "participants total", total, "\n")
         elif k == '2':
             print("\n\n --- Participating validator indices: ")
             print("\n Index  Count\n")
             eth2 = eth2addresses()
+            total = 0
             for index in eth2:
                 print(index.rjust(6), "|", eth2[index])
-            print(" ---", str(len(eth2)), "participants total\n")
+                total += eth2[index]
+            print(" ---", str(len(eth2)), "participants total", total, "\n")
         elif k == 'f':  # c == 19 to ctrl + s, but for qt backend only ?
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key

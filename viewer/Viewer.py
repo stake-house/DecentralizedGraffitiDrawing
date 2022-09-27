@@ -77,6 +77,7 @@ def paintWall():
             new_pixel += (DRAWN,)
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
+
 def paintImage():
     global wall, img, need_to_set, visible, correct_pixels, white_pixels_drawn, white_img
     if hide:
@@ -86,15 +87,16 @@ def paintImage():
     # This looks too complicated. If you know how to do this better, feel free to improve
     same = np.all(img[..., :3] == wall_part[..., :3], axis=-1)  # correct pixels set to true, but doesn't filter transparent
     correct_pixels = same + ~visible
+    need_to_set = ~(correct_pixels + ~show_animation_mask)
+    need_to_set_mask = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     need_to_set = ~correct_pixels
-    mask2 = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
     white_drawn = np.all(wall_part[..., :4] == [255, 255, 255, 1], axis=-1)
     white_pixels_drawn = np.sum(white_img & white_drawn & visible)
     if not progressFilterEnabled:
-        np.copyto(wall_part[..., :3], img[..., :3], where=mask2)
+        np.copyto(wall_part[..., :3], img[..., :3], where=need_to_set_mask)
     else:
-        np.copyto(wall_part[..., :3], np.array([0, 0, 255], dtype=np.uint8), where=mask2)
+        np.copyto(wall_part[..., :3], np.array([0, 0, 255], dtype=np.uint8), where=need_to_set_mask)
         need_to_not_set = ~(~same + ~visible)
         mask3 = np.repeat(need_to_not_set[..., np.newaxis], 3, axis=2)
         # this now includes white pixels if they're visible (alpha > 0)
@@ -145,6 +147,7 @@ def changeSize(scale_percent=0):
     y_res = height
     scale += int(scale_percent * scale / 100)
     img = cv2.resize(orig_img, dsize=(x_res, y_res), interpolation=interpolation_modes[int_mode])
+    updateAnimation(reset=True)
     repaint()
 
 
@@ -175,9 +178,23 @@ def toggleOverpaint():
     repaint()
 
 
+def updateAnimation(reset=False):
+    global show_animation_mask, pixels_per_frame, animation_done
+    if reset:
+        show_animation_mask = np.full_like(img, True, shape=(img.shape[1], img.shape[0]), dtype=np.bool8)
+        pixels_per_frame = 0
+        animation_done = True
+        return
+    wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
+    show_animation_mask = np.all(img[..., :3] == wall_part[..., :3], axis=-1)
+    pixels_per_frame = int(np.sum(show_animation_mask == False) / 100)
+    animation_done = False
+
+
 def toggleHide():
     global hide
     hide = not hide
+    updateAnimation()
     repaint()
 
 
@@ -232,7 +249,7 @@ def printHelp():
     print(" w, a, s, d      Move image around")
     print(" +, -            Scale image")
     print(" i               Loop through interpolation modes used in image scaling")
-    print(" v               Show/hide image")
+    print(" v               Show/hide image. Simulates drawing when shown.")
     print(" o               Enable/disable 'overpaint'. If not active, 'wrong' pixels (by others) are drawn above your image. This could help you selecting an empty spot.")
     print(" p               Enable/disable progress filter. Used to highlight right and wrong pixels which could be hard to detect otherwise.")
     print(" c               Counts how many pixels are needed to draw your image.")
@@ -321,6 +338,21 @@ def export():
     print("exported " + str(len(out_json)) + " pixels")
 
 
+def advanceAnimationMask():
+    global animation_done
+    not_same_indices = np.argwhere(show_animation_mask == False)
+    p = pixels_per_frame
+    if pixels_per_frame > not_same_indices.shape[0]:
+        p = not_same_indices.shape[0]
+    if p > 0:
+        index = np.random.choice(len(not_same_indices), p, replace=False)
+        for i in index:
+            idx = not_same_indices[i]
+            show_animation_mask[idx[0], idx[1]] = True
+    elif not animation_done:
+        animation_done = True
+
+
 def show(title):
     global orig_img
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
@@ -328,8 +360,12 @@ def show(title):
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
     print('Config loaded! Press "h" while the viewer window is active to show manuals.')
+    repaint()
     while not done:
         cv2.imshow(title, wall2)
+        if not animation_done:
+            advanceAnimationMask()
+            repaint()
         c = cv2.waitKey(50)
         if c == -1:
             continue
@@ -444,5 +480,8 @@ if __name__ == "__main__":
         print("unknown interpolation mode: " + cfg["interpolation"])
         exit(1)
 
+    animation_done = True
     changeSize()
+    show_animation_mask = np.full_like(img, True, shape=(img.shape[1], img.shape[0]), dtype=np.bool8)
+    pixels_per_frame = 0
     show("Beaconcha.in Graffitiwall (" + cfg['network'] + ")")

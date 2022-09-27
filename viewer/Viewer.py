@@ -5,6 +5,8 @@ import configparser
 import numpy as np
 import json
 
+from Contours import createContoursWindow
+
 
 def getPixelWallData():
     try:
@@ -76,7 +78,7 @@ def paintWall():
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
 def paintImage():
-    global wall, img, need_to_set, visible, correct_pixels, wall_part, white_pixels_drawn
+    global wall, img, need_to_set, visible, correct_pixels, white_pixels_drawn, white_img
     if hide:
         return
     visible = img[..., 3] != 0
@@ -85,19 +87,19 @@ def paintImage():
     same = np.all(img[..., :3] == wall_part[..., :3], axis=-1)  # correct pixels set to true, but doesn't filter transparent
     correct_pixels = same + ~visible
     need_to_set = ~correct_pixels
-    mask2 = np.repeat(need_to_set[..., np.newaxis], 4, axis=2)
+    mask2 = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
     white_drawn = np.all(wall_part[..., :4] == [255, 255, 255, 1], axis=-1)
     white_pixels_drawn = np.sum(white_img & white_drawn & visible)
     if not progressFilterEnabled:
-        np.copyto(wall_part, img, where=mask2)
+        np.copyto(wall_part[..., :3], img[..., :3], where=mask2)
     else:
-        np.copyto(wall_part, np.array([0, 0, 255, 255], dtype=np.uint8), where=mask2)
+        np.copyto(wall_part[..., :3], np.array([0, 0, 255], dtype=np.uint8), where=mask2)
         need_to_not_set = ~(~same + ~visible)
-        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 4, axis=2)
+        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 3, axis=2)
         # this now includes white pixels if they're visible (alpha > 0)
         # depending on your input image the output may looks unexpected, but should be correct
-        np.copyto(wall_part, np.array([0, 255, 0, 255], dtype=np.uint8), where=mask3)
+        np.copyto(wall_part[..., :3], np.array([0, 255, 0], dtype=np.uint8), where=mask3)
 
 
 def getPixelInfo(x, y):
@@ -116,6 +118,7 @@ def getPixelInfo(x, y):
 
 NOT_DRAWN = 0
 DRAWN = 1
+
 def repaint():
     global wall, wall2
     wall = np.full((1000, 1000, 4), [255, 255, 255, NOT_DRAWN], np.uint8)
@@ -296,8 +299,8 @@ def countPixels():
     total_pixels = np.sum(visible)
     right_pixels = np.sum(correct_pixels) - np.sum(~visible)
     print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " transparent)")
-    print("Correct pixels: " + str(right_pixels), "(" + str(white_pixels), "of those are white, of which", str(white_pixels_drawn), "have been drawn anyways)")
-    print("Pixels left:    " + str(left_pixels) + "\n\n")
+    print("Correct pixels: " + str(right_pixels), "/ {:.2f}%".format(right_pixels / total_pixels * 100), "(" + str(white_pixels), "of those are white, of which", str(white_pixels_drawn), "have been drawn anyways)")
+    print("Pixels left:    " + str(left_pixels), "/ {:.2f}%".format(100 - right_pixels / total_pixels * 100), "\n\n")
 
 
 def export():
@@ -319,13 +322,15 @@ def export():
 
 
 def show(title):
+    global orig_img
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(title, 1000, 1000)
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
     print('Config loaded! Press "h" while the viewer window is active to show manuals.')
     while not done:
         cv2.imshow(title, wall2)
-        c = cv2.waitKey(1)
+        c = cv2.waitKey(50)
         if c == -1:
             continue
         k = chr(c)
@@ -379,6 +384,12 @@ def show(title):
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key
             done = True
+        elif k == 'b':
+            cv2.destroyWindow(title)
+            createContoursWindow(orig_img, img)
+            cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(title, 1000, 1000)
+            cv2.setMouseCallback(title, onMouseEvent)
     cv2.destroyAllWindows()
 
 
@@ -390,6 +401,7 @@ interpolation_modes = {
     "lanc4": cv2.INTER_LANCZOS4,
     "lin_ex": cv2.INTER_LINEAR_EXACT,
 }
+
 
 if __name__ == "__main__":
     print("Loading your image config from settings.ini... Please wait")

@@ -6,13 +6,14 @@ import numpy as np
 import json
 
 from Contours import createContoursWindow
+from TieredPixels import createPixelOrderWindow
 
 
 def getPixelWallData():
     try:
         page = requests.get(baseUrl + "graffitiwall")
     except requests.exceptions.RequestException as _:
-        print("[getPixelWallData] Can't reach graffitiwall at " + url)
+        print("[getPixelWallData] Can't reach graffitiwall at " + baseUrl)
         return
     if page.status_code != 200:
         print("[getPixelWallData] Error fetching wall")
@@ -422,7 +423,8 @@ def show(title):
             done = True
         elif k == 'b':
             cv2.destroyWindow(title)
-            createContoursWindow(orig_img, img)
+            createPixelOrderWindow(img)
+            # createContoursWindow(orig_img, img)
             cv2.namedWindow(title, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(title, 1000, 1000)
             cv2.setMouseCallback(title, onMouseEvent)

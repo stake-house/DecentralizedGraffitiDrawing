@@ -52,6 +52,7 @@ cursors = [
     ], dtype=bool),
 ]
 
+background_inverted = False
 drawing = False
 mouse_x, mouse_y = 0, 0
 
@@ -129,7 +130,6 @@ def onMouseEvent(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
         drawing = True
         setColorAtCursor()
-
     elif event == cv2.EVENT_LBUTTONUP or \
          event == cv2.EVENT_RBUTTONDOWN:
         if drawing:
@@ -150,15 +150,36 @@ def toggleErase():
     setColorAtCursor()
 
 
-def createPixelOrderWindow(in_img):
+def toggleBackgroundColor():
+    global edited_img, shown_img, background_inverted
+    background = orig_img[..., 3] == 0
+    background_inverted = not background_inverted
+    if background_inverted:
+        bg_color = [0, 0, 0]
+    else:
+        bg_color = [255, 255, 255]
+    np.copyto(edited_img[..., :3], np.array(bg_color, dtype=np.uint8), where=np.repeat(background[..., np.newaxis], 3, axis=-1))
+    shown_img = edited_img.copy()
+
+
+def applyLayers():
+    global edited_img
+    for i in range(len(colors)):
+        color_mask = layers == i
+        color_mask = np.repeat(color_mask[..., np.newaxis], 3, axis = -1)
+        np.copyto(edited_img[..., :3], np.array(colors[i], dtype=np.uint8), where=color_mask)
+
+
+def createPixelOrderWindow(in_img, layers_in):
     global orig_img, shown_img, edited_img, erase, current_layer, layers, current_cursor
     orig_img = in_img
+    layers = layers_in
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 600, 800)
     cv2.setMouseCallback(title, onMouseEvent)
     edited_img = orig_img.copy()
+    applyLayers()
     shown_img = edited_img.copy()
-    layers = np.full_like(orig_img, -1, shape=(orig_img.shape[1], orig_img.shape[0]), dtype=np.int8)
 
     done = False
     erase = False
@@ -190,4 +211,7 @@ def createPixelOrderWindow(in_img):
                 setColorAtCursor()
         elif k == 'e':
             toggleErase()
+        elif k == 'b':
+            toggleBackgroundColor()
     cv2.destroyWindow(title)
+    return layers

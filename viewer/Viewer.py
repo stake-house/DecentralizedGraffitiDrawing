@@ -9,6 +9,11 @@ from Contours import createContoursWindow
 from TieredPixels import createPixelOrderWindow
 
 
+white = [255, 255, 255]
+black = [0, 0, 0]
+
+background_color = white
+
 def getPixelWallData():
     try:
         page = requests.get(baseUrl + "graffitiwall")
@@ -72,7 +77,7 @@ def paintWall():
         loadIndices()
     for pixel in wall_data:
         if eth1FilterEnabled and pixel["validator"] not in indices:
-            new_pixel = [255, 255, 255, NOT_DRAWN]
+            new_pixel = background_color + [NOT_DRAWN]
         else:
             new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
             new_pixel += (DRAWN,)
@@ -80,7 +85,7 @@ def paintWall():
 
 
 def paintImage():
-    global wall, img, need_to_set, visible, correct_pixels, white_pixels_drawn, white_img
+    global wall, img, need_to_set, visible, correct_pixels, bg_pixels_drawn, bg_img
     if hide:
         return
     visible = img[..., 3] != 0
@@ -91,9 +96,9 @@ def paintImage():
     need_to_set = ~(correct_pixels + ~show_animation_mask)
     need_to_set_mask = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     need_to_set = ~correct_pixels
-    white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
-    white_drawn = np.all(wall_part[..., :4] == [255, 255, 255, 1], axis=-1)
-    white_pixels_drawn = np.sum(white_img & white_drawn & visible)
+    bg_img = np.all(img[..., :3] == white, axis=-1)
+    bg_drawn = np.all(wall_part[..., 3] == DRAWN, where=bg_img)
+    bg_pixels_drawn = np.sum(bg_img & bg_drawn & visible)
     if not progressFilterEnabled:
         np.copyto(wall_part[..., :3], img[..., :3], where=need_to_set_mask)
     else:
@@ -124,7 +129,7 @@ DRAWN = 1
 
 def repaint():
     global wall, wall2
-    wall = np.full((1000, 1000, 4), [255, 255, 255, NOT_DRAWN], np.uint8)
+    wall = np.full((1000, 1000, 4), background_color + [NOT_DRAWN], np.uint8)
     if overpaint or progressFilterEnabled:
         paintWall()
         paintImage()
@@ -208,7 +213,7 @@ def toggleProgressFilter():
 def draw_label(text, pos):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     s = 0.4
-    color = (0, 0, 0)  # black
+    color = black if background_color is white else white 
     thickness = cv2.FILLED
     txt_size = cv2.getTextSize(text, font_face, s, thickness)
 
@@ -250,15 +255,17 @@ def printHelp():
     print(" w, a, s, d      Move image around")
     print(" +, -            Scale image")
     print(" i               Loop through interpolation modes used in image scaling")
-    print(" v               Show/hide image. Simulates drawing when shown.")
+    print(" v               Show/hide image. Simulates drawing when shown (including drawing order).")
     print(" o               Enable/disable 'overpaint'. If not active, 'wrong' pixels (by others) are drawn above your image. This could help you selecting an empty spot.")
     print(" p               Enable/disable progress filter. Used to highlight right and wrong pixels which could be hard to detect otherwise.")
-    print(" c               Counts how many pixels are needed to draw your image.")
+    print(" c               Counts how many pixels are needed to draw your image")
     print(" 1               List execution layer addresses of drawing participants for your image (eg. for POAPs)")
     print(" 2               List validator addresses of drawing participants for your image")
     print(" f               Save your current image configuration to settings.ini")
     print(" e               Export your current image to graffiti.json")
     print(" x               Filter by execution layer address")
+    print(" b               Change background color")
+    print(" t               Open pixel drawing order dialog")
     print(" q, ESC          Close application")
 
 def eth1addresses():
@@ -310,14 +317,20 @@ def toggleAddressFilter():
     repaint()
 
 
+def toggleBackgroundColor():
+    global background_color
+    background_color = black if background_color is white else white
+    repaint()
+
+
 def countPixels():
-    white = np.all(img[..., :3] == [255, 255, 255], axis=-1)
+    white_img_pixels = np.all(img[..., :3] == white, axis=-1)
     left_pixels = np.sum(need_to_set)
-    white_pixels = np.sum(white & visible)
+    white_pixels = np.sum(white_img_pixels & visible)
     total_pixels = np.sum(visible)
     right_pixels = np.sum(correct_pixels) - np.sum(~visible)
     print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " transparent)")
-    print("Correct pixels: " + str(right_pixels), "/ {:.2f}%".format(right_pixels / total_pixels * 100), "(" + str(white_pixels), "of those are white, of which", str(white_pixels_drawn), "have been drawn anyways)")
+    print("Correct pixels: " + str(right_pixels), "/ {:.2f}%".format(right_pixels / total_pixels * 100), "(" + str(white_pixels), "of those are white, of which", str(bg_pixels_drawn), "have been drawn anyways)")
     print("Pixels left:    " + str(left_pixels), "/ {:.2f}%".format(100 - right_pixels / total_pixels * 100), "\n\n")
 
 
@@ -342,19 +355,54 @@ def export():
 def advanceAnimationMask():
     global animation_done
     not_same_indices = np.argwhere(show_animation_mask == False)
-    p = pixels_per_frame
+    new_pixels_shown = pixels_per_frame
     if pixels_per_frame > not_same_indices.shape[0]:
-        p = not_same_indices.shape[0]
-    if p > 0:
-        index = np.random.choice(len(not_same_indices), p, replace=False)
-        for i in index:
-            idx = not_same_indices[i]
-            show_animation_mask[idx[0], idx[1]] = True
+        new_pixels_shown = not_same_indices.shape[0]
+    if new_pixels_shown > 0:
+        indices = []
+        found = 0
+        # select random pixels in order
+        for i in range(6):
+            current_layer_todo = (layers == i) & ~show_animation_mask
+            current_layer_indices = np.argwhere(current_layer_todo == True)
+            if len(current_layer_indices) == 0:
+                continue
+            current_layer_new_pixels = min(new_pixels_shown - found, len(current_layer_indices))
+            current_layer_selected = np.random.choice(len(current_layer_indices), current_layer_new_pixels, replace=False)
+            for j in current_layer_selected:
+                indices += [current_layer_indices[j].tolist()]
+            found += current_layer_new_pixels
+            if found == new_pixels_shown:
+                break
+        
+        # select from unmarked if needed
+        if new_pixels_shown - found > 0:
+            leftover_todo = (layers == -1) & ~show_animation_mask
+            leftover_indices = np.argwhere(leftover_todo == True)
+            leftover_new_pixels = min(new_pixels_shown - found, len(leftover_indices))
+            leftover_selected = np.random.choice(len(leftover_indices), leftover_new_pixels, replace=False)
+            for j in leftover_selected:
+                indices += [leftover_indices[j].tolist()]        
+        
+        # apply indices mask
+        for i in indices:
+            show_animation_mask[i[0], i[1]] = True
+            
     elif not animation_done:
         animation_done = True
 
 
-def show(title):
+def createOrderDialog():
+    global layers
+    cv2.destroyWindow(title)
+    layers = createPixelOrderWindow(img, layers)
+    # createContoursWindow(orig_img, img)
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(title, 1000, 1000)
+    cv2.setMouseCallback(title, onMouseEvent)
+
+
+def show():
     global orig_img
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 1000, 1000)
@@ -421,13 +469,10 @@ def show(title):
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key
             done = True
+        elif k == 't':
+            createOrderDialog()
         elif k == 'b':
-            cv2.destroyWindow(title)
-            createPixelOrderWindow(img)
-            # createContoursWindow(orig_img, img)
-            cv2.namedWindow(title, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(title, 1000, 1000)
-            cv2.setMouseCallback(title, onMouseEvent)
+            toggleBackgroundColor()
     cv2.destroyAllWindows()
 
 
@@ -486,4 +531,6 @@ if __name__ == "__main__":
     changeSize()
     show_animation_mask = np.full_like(img, True, shape=(img.shape[1], img.shape[0]), dtype=np.bool8)
     pixels_per_frame = 0
-    show("Beaconcha.in Graffitiwall (" + cfg['network'] + ")")
+    title = "Beaconcha.in Graffitiwall (" + cfg['network'] + ")"
+    layers = np.full_like(img, -1, shape=(img.shape[1], img.shape[0]), dtype=np.int8)
+    show()

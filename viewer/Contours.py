@@ -3,17 +3,33 @@ import numpy as np
 
 EdgeDetectorWindowTitle = "Edge Detection"
 
+# Preprocessing / Image filtering
+GaussFilter_Kernel = 3
+
 BiFilter_SigmaColor = 75
 BiFilter_SigmaSpace = 75
 BiFilter_BorderType = 4
 
+# Edge detection
+FillEdges = True # False means Fill between detected contours
 Canny_Threshold1 = 100
 Canny_Threshold2 = 100
-Canny_RetrievalMode = 1
+Canny_RetrievalMode = cv2.RETR_TREE
+
+Sobel_Aperture = 5
 
 Scaled_Threshold = 0
 
+maxLevel = 2
+minLevel = 0
 Contour_Thickness = 1
+Contour_Index = 0
+
+fill_start = 0
+fill_end = 2
+
+Erode_Kernel = 5
+Erode_Iterations = 5
 
 
 bifilter_border_types = [
@@ -26,29 +42,54 @@ bifilter_border_types = [
 ]
 
 canny_retrieval_modes = [
-    cv2.RETR_CCOMP,
-    cv2.RETR_EXTERNAL,
-    cv2.RETR_LIST,
-    cv2.RETR_TREE,
+    cv2.RETR_CCOMP,    # 2
+    cv2.RETR_EXTERNAL, # 0
+    cv2.RETR_LIST,     # 1
+    cv2.RETR_TREE,     # 3
 ]
 
-
 def updateContours():
+    global result_mask
+
     # 1. Blur image
     # Could also use Gaussian or other blur methods, but bilateral served best for now
+    # res = cv2.copyMakeBorder(orig_img, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=[255, 255, 255, 0])
+    # blurred = cv2.GaussianBlur(orig_img[..., :3], (GaussFilter_Kernel, GaussFilter_Kernel), cv2.BORDER_DEFAULT)
     blurred = cv2.bilateralFilter(orig_img[..., :3], 15, BiFilter_SigmaColor, BiFilter_SigmaSpace, borderType=bifilter_border_types[BiFilter_BorderType])
     
     # 2. Detect edges
-    # Could also use Sobel edge detection algorithm
-    canny = cv2.Canny(image=blurred, threshold1=Canny_Threshold1, threshold2=Canny_Threshold2)
+    canny = cv2.Canny(image=blurred, threshold1=Canny_Threshold1, threshold2=Canny_Threshold2, apertureSize=Sobel_Aperture)
 
     # 3. Identify contours
-    contours, _ = cv2.findContours(canny, canny_retrieval_modes[Canny_RetrievalMode], cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(canny, canny_retrieval_modes[Canny_RetrievalMode], cv2.CHAIN_APPROX_NONE)  # I've had examples in which CHAIN_APPROX_SIMPLE wasn't good enough...
 
-    # 4. Draw, scale and show contours
+    # 3.1 Create contour areas
+    contour_area = []
+    for c in contours:
+        contour_area.append((cv2.contourArea(c), c))
+    # 3.2 Sort by size
+    contour_area = sorted(contour_area, key=lambda x:x[0], reverse=True)
+
+    # 4. Draw contours
     orig_contours = np.full_like(orig_img, [0, 0, 0, 255])
-    cv2.drawContours(orig_contours, contours, -1, (255, 255, 255), thickness=Contour_Thickness)
-    img_contours = cv2.resize(orig_contours, dsize=(img.shape[1], img.shape[0]), interpolation=cv2.INTER_AREA)
+    if len(contour_area) >= maxLevel and FillEdges:
+        for i in range(minLevel, maxLevel + 1):
+            coords = np.vstack([contour_area[minLevel][1], contour_area[i][1]])
+            cv2.fillPoly(orig_contours, [coords], (255, 255, 255))
+    else:
+        cv2.drawContours(orig_contours, contours, Contour_Index, (255, 255, 255), thickness=Contour_Thickness, hierarchy=hierarchy, maxLevel=maxLevel)
+
+    
+    # cv2.fillPoly(orig_contours, contours)
+
+    # 5. Erode
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (Erode_Kernel, Erode_Kernel))
+    img_erosion = cv2.erode(orig_contours, kernel, iterations=Erode_Iterations, borderType=cv2.BORDER_CONSTANT, borderValue=[0, 0, 0, 0])
+
+    # 6. resize
+    img_contours = cv2.resize(img_erosion, dsize=(img.shape[1], img.shape[0]), interpolation=cv2.INTER_AREA)
+    # img_erosion = cv2.erode(img_contours, kernel, iterations=1)
+
     contour_mask = np.where(img_contours > Scaled_Threshold, True, False)[..., :3]
     img_contours_result = np.copy(img)
     # Ensure we don't attempt to draw invisible pixels (maybe some contour algorithm would select pixels outside of our image)
@@ -56,6 +97,7 @@ def updateContours():
     white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
     todo_mask = np.repeat((visible & ~white_img)[..., np.newaxis], 3, axis=2)
     np.copyto(img_contours_result[..., :3], np.array([0, 0, 0], dtype=np.uint8), where=contour_mask & todo_mask)
+    result_mask = np.all((contour_mask & todo_mask) == [True, True, True], axis = -1)
     cv2.imshow(EdgeDetectorWindowTitle, img_contours_result)
 
 
@@ -68,6 +110,36 @@ def Canny_Threshold1_changed(value):
 def Canny_Threshold2_changed(value):
     global Canny_Threshold2
     Canny_Threshold2 = value
+    updateContours()
+
+
+def Sobel_Aperture_changed(value):
+    global Sobel_Aperture
+    Sobel_Aperture = value * 2 + 1
+    updateContours()
+
+
+def maxLevel_changed(value):
+    global maxLevel
+    maxLevel = value
+    updateContours()
+
+
+def minLevel_changed(value):
+    global minLevel
+    minLevel = value
+    updateContours()
+
+
+def FillEdges_changed(value):
+    global FillEdges
+    FillEdges = bool(value)
+    updateContours()
+
+
+def Contour_Index_changed(value):
+    global Contour_Index
+    Contour_Index = value
     updateContours()
 
 
@@ -89,6 +161,12 @@ def BiFilter_SigmaColor_changed(value):
     updateContours()
 
 
+def GaussFilter_Kernel_changed(value):
+    global GaussFilter_Kernel
+    GaussFilter_Kernel = value * 2 + 1
+    updateContours()
+
+
 def BiFilter_SigmaSpace_changed(value):
     global BiFilter_SigmaSpace
     BiFilter_SigmaSpace = value
@@ -107,32 +185,63 @@ def Contour_Thickness_changed(value):
     updateContours()
 
 
+def Erode_Kernel_changed(value):
+    global Erode_Kernel
+    Erode_Kernel = value * 2 + 1
+    updateContours()
+
+
+def Erode_Iterations_changed(value):
+    global Erode_Iterations
+    Erode_Iterations = value
+    updateContours()
+
+
 def createContoursWindow(or_img, i):
-    global orig_img, img
+    global orig_img, img, result_mask
 
     print("\n\n------ Entering contour Editor -------")
     print("Have fun playing around with the sliders. To accept your changes, press e. Press q to exit.\n")
 
     orig_img = or_img
     img = i
+    result_mask = np.zeros_like(img, shape=img.shape[:2], dtype=bool)
     cv2.namedWindow(EdgeDetectorWindowTitle, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(EdgeDetectorWindowTitle, 600, 800)
+    # Filters
+    # cv2.createTrackbar("GaussFilter Kernel", EdgeDetectorWindowTitle, int(GaussFilter_Kernel / 2), 32,  GaussFilter_Kernel_changed) # Not used
+    # cv2.setTrackbarMin("GaussFilter Kernel", EdgeDetectorWindowTitle, 1)
     cv2.createTrackbar("BiFilter SigmaColor", EdgeDetectorWindowTitle, BiFilter_SigmaColor, 255,  BiFilter_SigmaColor_changed)
     cv2.createTrackbar("BiFilter SigmaSpace", EdgeDetectorWindowTitle, BiFilter_SigmaSpace, 255,  BiFilter_SigmaSpace_changed)
+    # Edge detection
     cv2.createTrackbar("Canny Threshold 1", EdgeDetectorWindowTitle, Canny_Threshold1, 1000, Canny_Threshold1_changed)
     cv2.createTrackbar("Canny Threshold 2", EdgeDetectorWindowTitle, Canny_Threshold2, 1000, Canny_Threshold2_changed)
     cv2.createTrackbar("Canny Retrieval Mode", EdgeDetectorWindowTitle, Canny_RetrievalMode, len(canny_retrieval_modes) - 1, Canny_RetrievalMode_changed)
+    cv2.createTrackbar("Sobel Aperture", EdgeDetectorWindowTitle, int(Sobel_Aperture / 2), 3, Sobel_Aperture_changed)
+    cv2.setTrackbarMin("Sobel Aperture", EdgeDetectorWindowTitle, 1)
+    # Edge drawing OR
+    cv2.createTrackbar("Draw Edges (0) or Fill (1)", EdgeDetectorWindowTitle, FillEdges, 1, FillEdges_changed)
+    cv2.createTrackbar("Contour Max Depth", EdgeDetectorWindowTitle, maxLevel, 32, maxLevel_changed)
+    cv2.createTrackbar("Contour Index", EdgeDetectorWindowTitle, Contour_Index, 32, Contour_Index_changed)
+    cv2.setTrackbarMin("Contour Index", EdgeDetectorWindowTitle, -1)
+    cv2.createTrackbar("Contour Thickness", EdgeDetectorWindowTitle, Contour_Thickness, 64, Contour_Thickness_changed)
+    cv2.setTrackbarMin("Contour Thickness", EdgeDetectorWindowTitle, -1)
+    # Edge filling (fill area between detected edges)
+    cv2.createTrackbar("Contour Min Depth (Fill only)", EdgeDetectorWindowTitle, minLevel, 32, minLevel_changed)
     cv2.createTrackbar("Scaled Threshold", EdgeDetectorWindowTitle, Scaled_Threshold, 255, Scaled_Threshold_changed)
-    cv2.createTrackbar("Contour Thickness", EdgeDetectorWindowTitle, Contour_Thickness, 16, Contour_Thickness_changed)
-    cv2.setTrackbarMin("Contour Thickness", EdgeDetectorWindowTitle, 1)
+    cv2.createTrackbar("Erode Kernel", EdgeDetectorWindowTitle, int(Erode_Kernel / 2), 10, Erode_Kernel_changed)
+    cv2.createTrackbar("Erode Iterations", EdgeDetectorWindowTitle, Erode_Iterations, 16, Erode_Iterations_changed)
     # No effect
     # cv2.createTrackbar("BiFilter BorderType", EdgeDetectorWindowTitle, BiFilter_BorderType, len(bifilter_border_types) - 1,  BiFilter_BorderType_changed)
     
     done = False
     while not done:
-        updateContours()
-        c = cv2.waitKey(0)
+        # updateContours()
+        c = cv2.waitKey(1)
+        if c == -1:
+            continue
         k = chr(c)
         if k == 'q':
             done = True
     cv2.destroyWindow(EdgeDetectorWindowTitle)
+    return result_mask

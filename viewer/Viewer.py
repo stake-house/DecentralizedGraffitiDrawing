@@ -75,6 +75,8 @@ def paintWall():
     global indices
     if eth1FilterEnabled and len(indices) == 0:
         loadIndices()
+    if wall_data == None:
+        return
     for pixel in wall_data:
         if eth1FilterEnabled and pixel["validator"] not in indices:
             new_pixel = background_color + [NOT_DRAWN]
@@ -112,6 +114,8 @@ def paintImage():
 
 def getPixelInfo(x, y):
     # very inefficient, #TODO transform wall_data into map or something
+    if wall_data == None:
+        return ""
     for pixel in wall_data:
         if pixel['y'] == y and pixel['x'] == x:
             info = ""
@@ -346,7 +350,10 @@ def export():
                 color = format(pixel[2], '02x')
                 color += format(pixel[1], '02x')
                 color += format(pixel[0], '02x')
-                out_json.append({"x": j + x_offset, "y": i + y_offset, "color": color})
+                pixel_json = {"x": j + x_offset, "y": i + y_offset, "color": color}
+                if (int(layers[i, j]) >= 0):
+                    pixel_json["prio"] = int(layers[i, j])
+                out_json.append(pixel_json)
     with open('graffiti.json', 'w') as graffiti_file:
         graffiti_file.write(json.dumps(out_json))
     print("exported " + str(len(out_json)) + " pixels")
@@ -387,7 +394,7 @@ def advanceAnimationMask():
         # apply indices mask
         for i in indices:
             show_animation_mask[i[0], i[1]] = True
-            
+
     elif not animation_done:
         animation_done = True
 
@@ -395,7 +402,7 @@ def advanceAnimationMask():
 def createOrderDialog():
     global layers
     cv2.destroyWindow(title)
-    layers = createPixelOrderWindow(img, layers)
+    layers = createPixelOrderWindow(img, layers, orig_img)
     # createContoursWindow(orig_img, img)
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 1000, 1000)

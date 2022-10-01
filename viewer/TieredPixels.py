@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 
+from Contours import createContoursWindow
+
 title = "Manage Pixel Drawing Order"
 colors = [
     [255,   0,   0],
@@ -52,9 +54,6 @@ cursors = [
     ], dtype=bool),
 ]
 
-background_inverted = False
-drawing = False
-mouse_x, mouse_y = 0, 0
 
 
 def isCursorOutside():
@@ -65,6 +64,8 @@ def isCursorOutside():
 def setColorAtCursor():
     # TODO improve this the numpy way, there's too much copy paste
     global shown_img
+    if hidden:
+        return
     if not drawing:
         shown_img = edited_img.copy()
     cursor = cursors[current_cursor]
@@ -126,7 +127,7 @@ def isPixelUsed(x, y) -> bool:
 def onMouseEvent(event, x, y, flags, param):
     global shown_img, drawing, edited_img, mouse_x, mouse_y, layers
     mouse_x = x
-    mouse_y = y
+    mouse_y = y - 9
     if event == cv2.EVENT_LBUTTONDOWN:
         drawing = True
         setColorAtCursor()
@@ -135,6 +136,7 @@ def onMouseEvent(event, x, y, flags, param):
         if drawing:
             drawing = False
             edited_img = shown_img.copy()
+            setColorAtCursor()
 
     if event == cv2.EVENT_MOUSEMOVE:
         setColorAtCursor()
@@ -162,36 +164,71 @@ def toggleBackgroundColor():
     shown_img = edited_img.copy()
 
 
+def toggleHideColors():
+    global hidden, shown_img
+    hidden = not hidden
+    if hidden:
+        shown_img = orig_img
+    else:
+        applyLayers()
+
+
 def applyLayers():
-    global edited_img
+    global edited_img, shown_img
     for i in range(len(colors)):
         color_mask = layers == i
         color_mask = np.repeat(color_mask[..., np.newaxis], 3, axis = -1)
         np.copyto(edited_img[..., :3], np.array(colors[i], dtype=np.uint8), where=color_mask)
+    shown_img = edited_img.copy()
+    setColorAtCursor()
 
 
-def createPixelOrderWindow(in_img, layers_in):
-    global orig_img, shown_img, edited_img, erase, current_layer, layers, current_cursor
+def addHeader():
+    res = cv2.copyMakeBorder(shown_img, 9, 0, 0, 0, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    s = 0.3
+    color = [255, 255, 255] 
+    # thickness = cv2.FILLED
+    pos = [0, 7]
+    txt_size = int(orig_img.shape[1] / 6) # cv2.getTextSize(text, font_face, s, thickness)
+    for i in range(len(colors)):
+        text = str(i + 1)
+        res[:9, pos[0]:pos[0] + txt_size, :3] = colors[i]
+        cv2.putText(res, text, pos, font_face, s, color, 1, 2)
+        pos[0] += txt_size
+    return res
+
+
+def resetCursor():
+    global mouse_x, mouse_y
+    mouse_x, mouse_y = 0, 0
+
+
+def createPixelOrderWindow(in_img, layers_in, unscaled):
+    global orig_img, shown_img, edited_img, erase, current_layer, layers, current_cursor, hidden, background_inverted, drawing
     orig_img = in_img
     layers = layers_in
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 600, 800)
     cv2.setMouseCallback(title, onMouseEvent)
     edited_img = orig_img.copy()
-    applyLayers()
-    shown_img = edited_img.copy()
 
     done = False
     erase = False
+    hidden = False
+    background_inverted = False
+    drawing = False
     current_layer = 0
     current_cursor = 0
+    resetCursor()
+    applyLayers()
     while not done:
         c = cv2.waitKey(1)
-        cv2.imshow(title, shown_img)
+        cv2.imshow(title, addHeader())
         if c == -1:
             continue
         k = chr(c)
-        if k == 'q':
+        if k == 'q' or k == 't':
             done = True
         elif c > 48 and c < 55:
             if drawing:
@@ -213,5 +250,16 @@ def createPixelOrderWindow(in_img, layers_in):
             toggleErase()
         elif k == 'b':
             toggleBackgroundColor()
+        elif k == 'v':
+            toggleHideColors()
+        elif k == 'c':
+            cv2.destroyWindow(title)
+            contours = createContoursWindow(unscaled, orig_img)
+            np.copyto(layers, current_layer, where=contours)
+            applyLayers()
+            cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(title, 600, 800)
+            resetCursor()
+            cv2.setMouseCallback(title, onMouseEvent)
     cv2.destroyWindow(title)
     return layers

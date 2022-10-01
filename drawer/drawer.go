@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +20,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
 	"github.com/namsral/flag"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type GraffitiWallPixel struct {
@@ -34,9 +39,19 @@ type GraffitiWall struct {
 }
 
 type DrawerPixel struct {
-	X     uint   `json: x`
-	Y     uint   `json: y`
-	Color string `json: color`
+	X     uint   `json:"x"`
+	Y     uint   `json:"y"`
+	Color string `json:"color"`
+}
+
+type ValidatorLookup struct {
+	Status string
+	Data   []ValidatorLookupData
+}
+type ValidatorLookupData struct {
+	PublicKey      string `json:"publickey"`
+	ValidSignature bool   `json:"valid_signature"`
+	ValidatorIndex uint   `json:"validatorindex"`
 }
 
 type DrawerData struct {
@@ -55,37 +70,106 @@ var (
 	UpdatePixelTime int
 	BeaconURL       string
 	GraffitiPrefix  string
-	wallCache       *GraffitiWall
-	inputCache      *DrawerData
-	todoPixels      *DrawerData
-	dataChanged     bool
+	MetricsEnabled  bool
+	MetricsAddress  string
+	MyValidators    string
+
+	// Internal vars
+	wallCache    *GraffitiWall
+	inputCache   *DrawerData
+	todoPixels   *DrawerData
+	dataChanged  bool
+	myValidators []uint
+
+	// Prometheus stats
+	promRPLTotalPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_total",
+			Help: "Total number of pixels to be drawn (including already drawn), split by type",
+		},
+		[]string{"type"})
+	promRPLTODOPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_todo",
+			Help: "Number of pixels still to be drawn, split by type",
+		},
+		[]string{"type"})
+	promRPLDrawSpeed = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_speed",
+			Help: "Number of pixels drawn in the last 24 hours",
+		},
+		[]string{"section"})
+	promRPLMyPixels = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gww_pixels_mine",
+			Help: "Number of pixels drawn by my validators (as supplied)",
+		},
+		[]string{"validator"})
+	promFetchLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gww_http_request_duration_seconds",
+			Help:    "HTTP request latency in seconds.",
+			Buckets: prometheus.LinearBuckets(0.01, 0.05, 10),
+		},
+		[]string{"url", "status"},
+	)
 )
 
 func getJson(url string, target interface{}) error {
+	var status string
+	var timer *prometheus.Timer
+
 	log.Printf("Fetching %s for json result....\n", url)
 	client := &http.Client{Timeout: 10 * time.Second}
+
+	if MetricsEnabled {
+		timer = prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+			promFetchLatency.WithLabelValues(url, status).Observe(v)
+		}))
+	}
+
 	r, err := client.Get(url)
 	if err != nil {
 		return err
 	}
+
+	if MetricsEnabled {
+		status = fmt.Sprintf("%d", r.StatusCode)
+		timer.ObserveDuration()
+	}
+
 	defer r.Body.Close()
+	if r.StatusCode < 200 || r.StatusCode > 299 {
+		log.Printf("WARNING: Fetch of %s returned unexpected code: %d (%s) - retrying later...\n", url, r.StatusCode, http.StatusText(r.StatusCode))
+		return nil
+	}
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
 func fetchGraffitiWall() bool {
-	wallCache = &GraffitiWall{}
+	newWallCache := &GraffitiWall{}
 
-	err := getJson(BeaconURL, wallCache)
+	err := getJson(BeaconURL, newWallCache)
 	if err != nil {
-		log.Fatalln(err)
+		log.Printf("WARNING: Error fetching beaconcha.in graffitiwall: %s\n", err)
+		return false
 	}
-	if wallCache.Status != "OK" {
-		log.Printf("WARNING: Unpexpected beaconcha.in graffitiwall status: %s\n", wallCache.Status)
+	if newWallCache.Status != "OK" {
+		log.Printf("WARNING: Unpexpected beaconcha.in graffitiwall status: %s\n", newWallCache.Status)
+		return false
 	} else {
-		log.Printf("Graffitiwall fetched from beaconcha.in, status: %s\n", wallCache.Status)
+		log.Printf("Graffitiwall fetched from beaconcha.in, status: %s\n", newWallCache.Status)
+		wallCache = newWallCache
 	}
-
 	return true
+}
+
+func guessCurrentSlot() uint {
+	// We have no proper way of obtaining this, so we'll calculate it. It's good enough for 24 hour estimates.
+	genesis := time.Date(2020, 12, 1, 12, 0, 0, 0, time.UTC)
+	secondsSinceGenesis := time.Since(genesis).Seconds()
+	return uint(math.Round(secondsSinceGenesis / 12))
 }
 
 func init() {
@@ -97,9 +181,12 @@ func init() {
 	flag.StringVar(&NimbusURL, "nimbus_url", "", "URL to Nimbus (if that's your selected client), e.g. http://127.0.0.1:5052")
 	flag.StringVar(&GraffitiPrefix, "graffiti_prefix", "", "Optional graffiti prefix, e.g. 'RPL-L v1.2.3'.")
 	flag.StringVar(&Network, "network", "mainnet", "Network to draw own, e.g. mainnet, gnosis, prater")
+	flag.StringVar(&MyValidators, "my_validators", "", "Comma separated string of validator indices AND/OR eth1 depositor addresses [e.g. node address]\n\t\t(checked against https://beaconcha.in/api/v1/docs/index.html#/Validator/get_api_v1_validator_eth1__eth1address_) that use the output of this drawer.\n\t\tE.g., 123,321 or 0x0123456789abcdefedcba9876543210123456789. Used only for metrics!")
 	flag.IntVar(&UpdateWallTime, "update_wall_time", 600, "Time between beaconcha.in updates")
 	flag.IntVar(&UpdateInputTime, "update_input_time", 600, "Time between input updates - only if remote URL is used. File will be instantly reloaded when changed.")
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
+	flag.BoolVar(&MetricsEnabled, "metrics_enabled", true, "Enable metrics server")
+	flag.StringVar(&MetricsAddress, "metrics_address", ":9106", " Metrics listen [address]:port")
 	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
@@ -148,6 +235,43 @@ func init() {
 		BeaconURL = fmt.Sprintf("https://%s.beaconcha.in/api/v1/graffitiwall", Network)
 	}
 
+	// Parse my Validators
+	myValidators = make([]uint, 0, 10)
+	eth1re := regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
+	if len(MyValidators) > 0 {
+		for _, val := range strings.Split(MyValidators, ",") {
+			// See if this is an eth1 address, if so query beaconchain.
+			if strings.HasPrefix(val, "0x") {
+				if !eth1re.MatchString(val) {
+					log.Fatalf("ERROR: Supplied validator pubkey input %s is not something we can handle at the moment, expecting 0x<40 hex chars>, e.g. 0xD33526068D116cE69F19A9ee46F0bd304F21A51f\n", val)
+				}
+				validators := &ValidatorLookup{}
+				lookupURL := fmt.Sprintf("https://beaconcha.in/api/v1/validator/eth1/%s", val)
+				log.Printf("My Validator supplied pubkey %s, looking up...", val)
+				err := getJson(lookupURL, &validators)
+				if err != nil {
+					log.Fatalf("ERROR: Validator lookup with key %s failed: %s\n", val, err)
+				}
+				if len(validators.Data) == 0 {
+					log.Printf("WARNING: Validator lookup results for pubkey %s had 0 entries. Typo? Wrong address? Make sure this is the address that made the deposits, e.g. rocket pool node address.\n", val)
+				}
+				for _, v := range validators.Data {
+					myValidators = append(myValidators, v.ValidatorIndex)
+				}
+			} else {
+				// Nope
+				i, err := strconv.Atoi(val)
+				if err != nil {
+					log.Fatalf("Error parsing validator index %s, make sure you give the index and not the pubkey to my_validators! %s\n", val, err)
+				}
+				myValidators = append(myValidators, uint(i))
+			}
+		}
+		log.Printf("Registered %d validators for 'pixels drawn by me'-metrics: %+v", len(myValidators), myValidators)
+	} else {
+		log.Printf("NOTE: No validators supplied as mine, thus pixels_mine metric will be absent!\n")
+	}
+
 	// Input remote or file?
 	re := regexp.MustCompile(`^https?://`)
 	if re.MatchString(InputURL) {
@@ -179,12 +303,22 @@ func init() {
 	}
 }
 
+func isMyValidator(index uint) bool {
+	for _, i := range myValidators {
+		if i == index {
+			return true
+		}
+	}
+	return false
+}
+
 func updateInput() bool {
 	newData := &DrawerData{}
 	if InputIsURL {
 		err := getJson(InputURL, &newData.Data)
 		if err != nil {
-			log.Fatalf("ERROR: Could not parse input data from supplied URL [%s]: %s\n", InputURL, err)
+			log.Printf("ERROR: Could not parse input data from supplied URL [%s]: %s\n", InputURL, err)
+			return false
 		}
 	} else {
 		inputFile, err := os.Open(InputURL)
@@ -226,13 +360,24 @@ func updateGraffiti() bool {
 		todoPixels = &DrawerData{}
 
 		// Make a lookup dict for walldata
-		wallCheck := make(map[string]string)
-		for _, pixel := range wallCache.Data {
-			// TODO: sanity check on beacon wall data, for now we'll just accept it since we're only comparing against it
-			wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] = strings.ToLower(pixel.Color)
+		curSlot := guessCurrentSlot()
+		pixelsPerDayGlobal := 0
+		wallCheck := make(map[string]*GraffitiWallPixel)
+		for _, p := range wallCache.Data {
+			pixel := p // get a unique pointer, thanks go
+			wallCheck[fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)] = &pixel
+			if pixel.Slot >= (curSlot - 7200) {
+				pixelsPerDayGlobal++
+			}
 		}
 
 		completed := 0
+		skipped := 0
+		wrong := 0
+		pixelsPerDayRPL := 0
+		totalWhite := 0
+		todoWhite := 0
+		myPixels := make(map[string]uint) // val idx -> pixels
 		pcre := regexp.MustCompile(`^[a-f0-9]{6}$`)
 		for _, pixel := range inputCache.Data {
 			// Is this pixel sane?
@@ -242,14 +387,51 @@ func updateGraffiti() bool {
 				continue
 			}
 			// Is it already drawn?
-			if wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)] == strings.ToLower(pixel.Color) ||
-				(len(wallCheck[fmt.Sprintf("%s:%s", pixel.X, pixel.Y)]) == 0 && strings.ToLower(pixel.Color) == "ffffff") {
+			checkIdx := fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)
+			// White pixels can be skipped, so empty entries are OK for them
+			if pixel.Color == "ffffff" {
+				totalWhite++
+			}
+			if wallCheck[checkIdx] == nil && pixel.Color == "ffffff" {
+				// White pixel, no need to draw
+				todoWhite++
+				skipped++
+			} else if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) == pixel.Color {
 				completed++
+				// Speed Stats
+				if wallCheck[checkIdx].Slot >= (curSlot - 7200) {
+					pixelsPerDayRPL++
+				} else {
+					// log.Printf("Pixel %s was drawn %07d slots ago [curslot %d vs %07d of this pixel]\n", checkIdx, curSlot - wallCheck[checkIdx].Slot, curSlot, wallCheck[checkIdx].Slot)
+				}
+				// Did we draw this?
+				if isMyValidator(wallCheck[checkIdx].Validator) {
+					vIdx := fmt.Sprintf("%d", wallCheck[checkIdx].Validator)
+					if _, ok := myPixels[vIdx]; !ok {
+						myPixels[vIdx] = 0
+					}
+					myPixels[vIdx]++
+				}
 			} else {
+				if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) != pixel.Color {
+					wrong++
+				}
 				todoPixels.Data = append(todoPixels.Data, pixel)
 			}
 		}
-		log.Printf("STATUS: TODO %d pixel(s), %d already painted!\n", len(todoPixels.Data), completed)
+		if MetricsEnabled {
+			promRPLTotalPixels.WithLabelValues("Normal").Set(float64(len(inputCache.Data) - totalWhite))
+			promRPLTotalPixels.WithLabelValues("White").Set(float64(totalWhite))
+			promRPLTODOPixels.WithLabelValues("Normal").Set(float64(len(todoPixels.Data) - wrong))
+			promRPLTODOPixels.WithLabelValues("White").Set(float64(todoWhite))
+			promRPLTODOPixels.WithLabelValues("Fix").Set(float64(wrong))
+			promRPLDrawSpeed.WithLabelValues("RPL").Set(float64(pixelsPerDayRPL))
+			promRPLDrawSpeed.WithLabelValues("Global").Set(float64(pixelsPerDayGlobal))
+			for vIdx, val := range myPixels {
+				promRPLMyPixels.WithLabelValues(vIdx).Set(float64(val))
+			}
+		}
+		log.Printf("STATUS: TODO %d pixel(s) [%d wrong to fix], %d already painted, %d skipped/ignored since they're white!\n", len(todoPixels.Data), wrong, completed, skipped)
 	}
 
 	// grab pixel, generate graffiti, output
@@ -393,7 +575,7 @@ func main() {
 		// Set watcher
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
-			log.Printf("WARNING: Failed to create input watcher for file, reverting to cron updates: ", err)
+			log.Printf("WARNING: Failed to create input watcher for file, reverting to cron updates: %s", err)
 			cron.Every(UpdateInputTime).Seconds().Do(updateInput)
 		} else {
 			go writeWatcher(watcher)
@@ -417,5 +599,18 @@ func main() {
 	}()
 
 	cron.StartAsync()
+
+	// Enable metrics if requested
+	h := &http.Server{Addr: MetricsAddress}
+	if MetricsEnabled {
+		go func() {
+			http.Handle("/metrics", promhttp.Handler())
+			log.Printf("Trying to start Metrics Server at http://%s/metrics\n", MetricsAddress)
+			if err := h.ListenAndServe(); err != nil {
+				log.Printf("Error trying to start Metrics server http://%s/metrics (will continue without)! %s\n", MetricsAddress, err)
+			}
+		}()
+	}
+
 	<-done
 }

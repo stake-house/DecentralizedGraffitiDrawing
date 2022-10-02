@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
+	"github.com/jmcvetta/randutil"
 	"github.com/namsral/flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -42,6 +44,14 @@ type DrawerPixel struct {
 	X     uint   `json:"x"`
 	Y     uint   `json:"y"`
 	Color string `json:"color"`
+	Prio  uint   `json:"prio"`
+}
+
+type InputPixel struct {
+	X     uint   `json:"x"`
+	Y     uint   `json:"y"`
+	Color string `json:"color"`
+	Prio  *int   `json:"prio,omitempty"`
 }
 
 type ValidatorLookup struct {
@@ -54,8 +64,27 @@ type ValidatorLookupData struct {
 	ValidatorIndex uint   `json:"validatorindex"`
 }
 
+type InputData struct {
+	Data []InputPixel
+}
+
 type DrawerData struct {
 	Data []DrawerPixel
+}
+
+// inputpixel -> drawerpixel conversion
+func (i *InputPixel) toDrawerPixel() DrawerPixel {
+	prio := ^uint(0) // MAX_UINT
+	if i.Prio != nil {
+		prio = uint(*i.Prio)
+	}
+	pixel := DrawerPixel{
+		X:     i.X,
+		Y:     i.Y,
+		Color: i.Color,
+		Prio:  prio,
+	}
+	return pixel
 }
 
 var (
@@ -76,7 +105,7 @@ var (
 
 	// Internal vars
 	wallCache    *GraffitiWall
-	inputCache   *DrawerData
+	inputCache   *InputData
 	todoPixels   *DrawerData
 	dataChanged  bool
 	myValidators []uint
@@ -259,7 +288,7 @@ func init() {
 					myValidators = append(myValidators, v.ValidatorIndex)
 				}
 			} else {
-				// Nope
+				// Normal index
 				i, err := strconv.Atoi(val)
 				if err != nil {
 					log.Fatalf("Error parsing validator index %s, make sure you give the index and not the pubkey to my_validators! %s\n", val, err)
@@ -313,7 +342,7 @@ func isMyValidator(index uint) bool {
 }
 
 func updateInput() bool {
-	newData := &DrawerData{}
+	newData := &InputData{}
 	if InputIsURL {
 		err := getJson(InputURL, &newData.Data)
 		if err != nil {
@@ -379,24 +408,24 @@ func updateGraffiti() bool {
 		todoWhite := 0
 		myPixels := make(map[string]uint) // val idx -> pixels
 		pcre := regexp.MustCompile(`^[a-f0-9]{6}$`)
-		for _, pixel := range inputCache.Data {
-			// Is this pixel sane?
-			pixel.Color = strings.TrimSpace(strings.ToLower(pixel.Color))
-			if pixel.X > 999 || pixel.Y > 999 || !pcre.MatchString(pixel.Color) {
-				log.Printf("WARNING: Input json has invalid pixel: %d,%d %s - skipping!\n", pixel.X, pixel.Y, pixel.Color)
+		for _, ipixel := range inputCache.Data {
+			// Is this ipixel sane?
+			ipixel.Color = strings.TrimSpace(strings.ToLower(ipixel.Color))
+			if ipixel.X > 999 || ipixel.Y > 999 || !pcre.MatchString(ipixel.Color) {
+				log.Printf("WARNING: Input json has invalid pixel: %d,%d %s - skipping!\n", ipixel.X, ipixel.Y, ipixel.Color)
 				continue
 			}
 			// Is it already drawn?
-			checkIdx := fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)
-			// White pixels can be skipped, so empty entries are OK for them
-			if pixel.Color == "ffffff" {
+			checkIdx := fmt.Sprintf("%03d:%03d", ipixel.X, ipixel.Y)
+			// White ipixels can be skipped, so empty entries are OK for them
+			if ipixel.Color == "ffffff" {
 				totalWhite++
 			}
-			if wallCheck[checkIdx] == nil && pixel.Color == "ffffff" {
-				// White pixel, no need to draw
+			if wallCheck[checkIdx] == nil && ipixel.Color == "ffffff" {
+				// White ipixel, no need to draw
 				todoWhite++
 				skipped++
-			} else if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) == pixel.Color {
+			} else if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) == ipixel.Color {
 				completed++
 				// Speed Stats
 				if wallCheck[checkIdx].Slot >= (curSlot - 7200) {
@@ -413,10 +442,10 @@ func updateGraffiti() bool {
 					myPixels[vIdx]++
 				}
 			} else {
-				if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) != pixel.Color {
+				if wallCheck[checkIdx] != nil && strings.ToLower(wallCheck[checkIdx].Color) != ipixel.Color {
 					wrong++
 				}
-				todoPixels.Data = append(todoPixels.Data, pixel)
+				todoPixels.Data = append(todoPixels.Data, ipixel.toDrawerPixel())
 			}
 		}
 		if MetricsEnabled {
@@ -432,6 +461,7 @@ func updateGraffiti() bool {
 			}
 		}
 		log.Printf("STATUS: TODO %d pixel(s) [%d wrong to fix], %d already painted, %d skipped/ignored since they're white!\n", len(todoPixels.Data), wrong, completed, skipped)
+		inputCache = nil // done with it
 	}
 
 	// grab pixel, generate graffiti, output
@@ -443,9 +473,13 @@ func updateGraffiti() bool {
 		log.Printf("Zero todoPixels available... no graffiti for now.... [guard mode]\n")
 		return false
 	}
-	index := rand.Intn(len(todoPixels.Data))
-	pixel := todoPixels.Data[index]
-	log.Printf(" * Randomly selected todo pixel: [%d,%d] #%s\n", pixel.X, pixel.Y, pixel.Color)
+
+	log.Printf("Test draw of 100 pixels!\n")
+	for i := 0; i < 500; i++ {
+		log.Printf("Pixel: %s\n", getRandomPixel())
+	}
+	pixel := getRandomPixel()
+	log.Printf(" * Randomly selected todo pixel: [%d,%d] #%s (priority group %d)\n", pixel.X, pixel.Y, pixel.Color, pixel.Prio)
 
 	// Format graffiti and send it out
 	graffiti := getGraffiti(pixel)
@@ -454,6 +488,47 @@ func updateGraffiti() bool {
 		graffiti = strings.TrimSpace(fmt.Sprintf("%.16s %s", GraffitiPrefix, graffiti))
 	}
 	return writeGraffiti(graffiti)
+}
+
+func getRandomPixel() DrawerPixel {
+	// Prio = 0 is highest, MAX_UINT is lowest, so sort todo array by prio and grab one of the first set
+	sort.Slice(todoPixels.Data, func(i, j int) bool {
+		return todoPixels.Data[i].Prio < todoPixels.Data[j].Prio
+	})
+
+	// grab a random pixel from the minprio set, minprio should be at the start, so see how many we got
+	targetPrio := todoPixels.Data[0].Prio
+	var nextSetIndex int
+	for nextSetIndex = 0; nextSetIndex < len(todoPixels.Data) && targetPrio == todoPixels.Data[nextSetIndex].Prio; nextSetIndex++ {
+	}
+
+	// Do a weighted random based on pixel energy (closer to white = less preferable)
+	choices := make([]randutil.Choice, 0, nextSetIndex)
+	for i := 0; i < nextSetIndex; i++ {
+		energy := color2Energy(todoPixels.Data[i].Color)
+		weight := 195075 + 1 - energy
+		choices = append(choices, randutil.Choice{int(weight), todoPixels.Data[i]})
+	}
+
+	wpixel, err := randutil.WeightedChoice(choices)
+	var pixel DrawerPixel
+	if err != nil {
+		log.Printf("WARNING: error selecting weighted choice (bug?): %s -- falling back to normal random.\n", err)
+		index := rand.Intn(nextSetIndex)
+		pixel = todoPixels.Data[index]
+	} else {
+		pixel = wpixel.Item.(DrawerPixel)
+	}
+	return pixel
+}
+
+func color2Energy(color string) uint {
+	// Input 6 char color hex string
+	// Returns color energy value (higher is whiter, 255^2+255^2+255^2 is max, aka 195075.
+	cr, _ := strconv.ParseUint(color[0:2], 16, 0)
+	cg, _ := strconv.ParseUint(color[2:4], 16, 0)
+	cb, _ := strconv.ParseUint(color[4:6], 16, 0)
+	return uint(cb*cb + cg*cg + cr*cr)
 }
 
 func getGraffitiTemplate() string {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
+	"github.com/gregjones/httpcache"
 	"github.com/jmcvetta/randutil"
 	"github.com/namsral/flag"
 	"github.com/prometheus/client_golang/prometheus"
@@ -102,11 +103,13 @@ var (
 	MetricsEnabled  bool
 	MetricsAddress  string
 	MyValidators    string
+	EnergyWeighted  bool
 
 	// Internal vars
 	wallCache    *GraffitiWall
 	inputCache   *InputData
 	todoPixels   *DrawerData
+	httpClient   *http.Client
 	dataChanged  bool
 	myValidators []uint
 
@@ -150,7 +153,6 @@ func getJson(url string, target interface{}) error {
 	var timer *prometheus.Timer
 
 	log.Printf("Fetching %s for json result....\n", url)
-	client := &http.Client{Timeout: 10 * time.Second}
 
 	if MetricsEnabled {
 		timer = prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
@@ -158,13 +160,24 @@ func getJson(url string, target interface{}) error {
 		}))
 	}
 
-	r, err := client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		log.Printf("WARNING: Failed to create new HTTP GET request for URL %s: %s\n", url, err)
+		return err
+	}
+
+	r, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Failed to execute GET request for URL %s: %s\n", url, err)
 		return err
 	}
 
 	if MetricsEnabled {
-		status = fmt.Sprintf("%d", r.StatusCode)
+		if r.Header.Get(httpcache.XFromCache) != "" {
+			status = fmt.Sprintf("%d (cached)", r.StatusCode)
+		} else {
+			status = fmt.Sprintf("%d", r.StatusCode)
+		}
 		timer.ObserveDuration()
 	}
 
@@ -216,6 +229,7 @@ func init() {
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
 	flag.BoolVar(&MetricsEnabled, "metrics_enabled", true, "Enable metrics server")
 	flag.StringVar(&MetricsAddress, "metrics_address", ":9106", " Metrics listen [address]:port")
+	flag.BoolVar(&EnergyWeighted, "energy_weighted", true, "When enabled use a weighted random based on pixel 'energy'. Whiter pixels get slightly less weight than darker pixels.")
 	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
@@ -262,6 +276,12 @@ func init() {
 		BeaconURL = "https://beacon.gnosischain.com/api/v1/graffitiwall"
 	default:
 		BeaconURL = fmt.Sprintf("https://%s.beaconcha.in/api/v1/graffitiwall", Network)
+	}
+
+	// Setup caching http client
+	httpClient = &http.Client{
+		Transport: httpcache.NewMemoryCacheTransport(),
+		Timeout:   10 * time.Second,
 	}
 
 	// Parse my Validators
@@ -474,10 +494,6 @@ func updateGraffiti() bool {
 		return false
 	}
 
-	log.Printf("Test draw of 100 pixels!\n")
-	for i := 0; i < 500; i++ {
-		log.Printf("Pixel: %s\n", getRandomPixel())
-	}
 	pixel := getRandomPixel()
 	log.Printf(" * Randomly selected todo pixel: [%d,%d] #%s (priority group %d)\n", pixel.X, pixel.Y, pixel.Color, pixel.Prio)
 
@@ -502,22 +518,27 @@ func getRandomPixel() DrawerPixel {
 	for nextSetIndex = 0; nextSetIndex < len(todoPixels.Data) && targetPrio == todoPixels.Data[nextSetIndex].Prio; nextSetIndex++ {
 	}
 
-	// Do a weighted random based on pixel energy (closer to white = less preferable)
-	choices := make([]randutil.Choice, 0, nextSetIndex)
-	for i := 0; i < nextSetIndex; i++ {
-		energy := color2Energy(todoPixels.Data[i].Color)
-		weight := 195075 + 1 - energy
-		choices = append(choices, randutil.Choice{int(weight), todoPixels.Data[i]})
-	}
-
-	wpixel, err := randutil.WeightedChoice(choices)
 	var pixel DrawerPixel
-	if err != nil {
-		log.Printf("WARNING: error selecting weighted choice (bug?): %s -- falling back to normal random.\n", err)
+
+	if EnergyWeighted {
+		// Do a weighted random based on pixel energy (closer to white = less preferable)
+		choices := make([]randutil.Choice, 0, nextSetIndex)
+		for i := 0; i < nextSetIndex; i++ {
+			energy := color2Energy(todoPixels.Data[i].Color)
+			weight := 195075 + 1 - energy
+			choices = append(choices, randutil.Choice{int(weight), todoPixels.Data[i]})
+		}
+
+		wpixel, err := randutil.WeightedChoice(choices)
+		if err != nil {
+			index := rand.Intn(nextSetIndex)
+			pixel = todoPixels.Data[index]
+		} else {
+			pixel = wpixel.Item.(DrawerPixel)
+		}
+	} else {
 		index := rand.Intn(nextSetIndex)
 		pixel = todoPixels.Data[index]
-	} else {
-		pixel = wpixel.Item.(DrawerPixel)
 	}
 	return pixel
 }
@@ -572,12 +593,20 @@ func setNimbusGraffiti(graffiti string) error {
 	url := fmt.Sprintf("%s%s", strings.TrimSuffix(NimbusURL, "/"), "/nimbus/v1/graffiti")
 	log.Printf("Sending graffiti [%s] to nimbus at %s...\n", graffiti, url)
 
-	// response = requests.post(url, headers=header, data=graffiti)
-	client := &http.Client{Timeout: 10 * time.Second}
-	r, err := client.Post(url, "text/plain", bytes.NewBufferString(graffiti))
+	req, err := http.NewRequest("POST", url, bytes.NewBufferString(graffiti))
 	if err != nil {
+		log.Printf("WARNING: Failed to create new HTTP POST request for URL %s: %s\n", url, err)
 		return err
 	}
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	r, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Failed to execute POST request for URL %s: %s\n", url, err)
+		return err
+	}
+
 	defer r.Body.Close()
 	reply, _ := io.ReadAll(r.Body)
 	if r.StatusCode > 199 && r.StatusCode < 399 {

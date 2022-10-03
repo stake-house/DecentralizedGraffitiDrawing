@@ -31,14 +31,8 @@ def getPixelWallData():
 
 
 def saveSettings():
-    if cfg['xres'] == 'original':
-        config['GraffitiConfig']['xres'] = 'original'
-    else:
-        config['GraffitiConfig']['xres'] = str(x_res)
-    if cfg['yres'] == 'original':
-        config['GraffitiConfig']['yres'] = 'original'
-    else:
-        config['GraffitiConfig']['yres'] = str(y_res)
+    config['GraffitiConfig']['xres'] = str(x_res)
+    config['GraffitiConfig']['yres'] = str(y_res)
     config['GraffitiConfig']['scale'] = str(scale)
     config['GraffitiConfig']['xoffset'] = str(x_offset)
     config['GraffitiConfig']['yoffset'] = str(y_offset)
@@ -190,7 +184,7 @@ def toggleOverpaint():
 def updateAnimation(reset=False):
     global show_animation_mask, pixels_per_frame, animation_done
     if reset:
-        show_animation_mask = np.full_like(img, True, shape=(img.shape[1], img.shape[0]), dtype=np.bool8)
+        show_animation_mask = np.full_like(img, True, shape=(img.shape[:2]), dtype=np.bool8)
         pixels_per_frame = 0
         animation_done = True
         return
@@ -505,7 +499,7 @@ if __name__ == "__main__":
     if orig_img is None:
         print("Can't load image " + file)
         exit(1)
-    y_res, x_res, channels = orig_img.shape
+    y_res, x_res, _ = orig_img.shape
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))
     y_res = int(y_res * (scale / 100))
@@ -536,8 +530,8 @@ if __name__ == "__main__":
 
     animation_done = True
     changeSize()
-    show_animation_mask = np.full_like(img, True, shape=(img.shape[1], img.shape[0]), dtype=np.bool8)
+    show_animation_mask = np.full_like(img, True, shape=(img.shape[:2]), dtype=np.bool8)
     pixels_per_frame = 0
     title = "Beaconcha.in Graffitiwall (" + cfg['network'] + ")"
-    layers = np.full_like(img, -1, shape=(img.shape[1], img.shape[0]), dtype=np.int8)
+    layers = np.full_like(img, -1, shape=(img.shape[:2]), dtype=np.int8)
     show()

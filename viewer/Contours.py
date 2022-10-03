@@ -19,6 +19,8 @@ Canny_RetrievalMode = cv2.RETR_TREE
 Sobel_Aperture = 5
 
 Scaled_Threshold = 0
+Scaled_Offset_X = 0
+Scaled_Offset_Y = 0
 
 maxLevel = 2
 minLevel = 0
@@ -214,12 +216,6 @@ def Canny_RetrievalMode_changed(value):
     updateContours()
 
 
-def Scaled_Threshold_changed(value):
-    global Scaled_Threshold
-    Scaled_Threshold = value
-    updateContours()
-
-
 def Erode_Kernel_changed(value):
     global Erode_Kernel
     Erode_Kernel = value * 2 + 1
@@ -229,6 +225,24 @@ def Erode_Kernel_changed(value):
 def Erode_Iterations_changed(value):
     global Erode_Iterations
     Erode_Iterations = value
+    updateContours()
+
+
+def Scaled_Threshold_changed(value):
+    global Scaled_Threshold
+    Scaled_Threshold = value
+    updateContours()
+
+
+def Scaled_Offset_X_changed(value):
+    global Scaled_Offset_X
+    Scaled_Offset_X = value
+    updateContours()
+
+
+def Scaled_Offset_Y_changed(value):
+    global Scaled_Offset_Y
+    Scaled_Offset_Y = value
     updateContours()
 
 
@@ -257,8 +271,8 @@ def createContoursWindow(or_img, i):
     # Filters
     # cv2.createTrackbar("GaussFilter Kernel", EdgeDetectorWindowTitle, int(GaussFilter_Kernel / 2), 32,  GaussFilter_Kernel_changed) # Not used
     # cv2.setTrackbarMin("GaussFilter Kernel", EdgeDetectorWindowTitle, 1)
-    cv2.createTrackbar("1: BiFilter SigmaColor", EdgeDetectorWindowTitle, BiFilter_SigmaColor, 255,  BiFilter_SigmaColor_changed)
-    cv2.createTrackbar("1: BiFilter SigmaSpace", EdgeDetectorWindowTitle, BiFilter_SigmaSpace, 255,  BiFilter_SigmaSpace_changed)
+    cv2.createTrackbar("1: BiFilter SigmaColor", EdgeDetectorWindowTitle, BiFilter_SigmaColor, 255, BiFilter_SigmaColor_changed)
+    cv2.createTrackbar("1: BiFilter SigmaSpace", EdgeDetectorWindowTitle, BiFilter_SigmaSpace, 255, BiFilter_SigmaSpace_changed)
     # Edge detection
     cv2.createTrackbar("2: Canny Threshold 1", EdgeDetectorWindowTitle, Canny_Threshold1, 1000, Canny_Threshold1_changed)
     cv2.createTrackbar("2: Canny Threshold 2", EdgeDetectorWindowTitle, Canny_Threshold2, 1000, Canny_Threshold2_changed)
@@ -277,9 +291,11 @@ def createContoursWindow(or_img, i):
     cv2.createTrackbar("4: Erode Kernel", EdgeDetectorWindowTitle, int(Erode_Kernel / 2), 10, Erode_Kernel_changed)
     cv2.createTrackbar("4: Erode Iterations", EdgeDetectorWindowTitle, Erode_Iterations, 16, Erode_Iterations_changed)
     cv2.createTrackbar("Scaled Threshold", EdgeDetectorWindowTitle, Scaled_Threshold, 255, Scaled_Threshold_changed)
+    cv2.createTrackbar("Scale Offset X", EdgeDetectorWindowTitle, Scaled_Offset_X, 64, Scaled_Offset_X_changed)
+    cv2.createTrackbar("Scale Offset Y", EdgeDetectorWindowTitle, Scaled_Offset_Y, 64, Scaled_Offset_Y_changed)
     # No effect
     # cv2.createTrackbar("BiFilter BorderType", EdgeDetectorWindowTitle, BiFilter_BorderType, len(bifilter_border_types) - 1,  BiFilter_BorderType_changed)
-    
+
     updateContours()
     done = 0
     while done == 0:

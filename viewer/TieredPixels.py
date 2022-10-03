@@ -152,25 +152,41 @@ def toggleErase():
     setColorAtCursor()
 
 
-def toggleBackgroundColor():
-    global edited_img, shown_img, background_inverted
+def applyBackground():
     background = orig_img[..., 3] == 0
-    background_inverted = not background_inverted
     if background_inverted:
         bg_color = [0, 0, 0]
     else:
         bg_color = [255, 255, 255]
-    np.copyto(edited_img[..., :3], np.array(bg_color, dtype=np.uint8), where=np.repeat(background[..., np.newaxis], 3, axis=-1))
-    shown_img = edited_img.copy()
+    
+    np.copyto(shown_img[..., :3], np.array(bg_color, dtype=np.uint8), where=np.repeat(background[..., np.newaxis], 3, axis=-1))
+    if not hidden:
+        np.copyto(edited_img[..., :3], np.array(bg_color, dtype=np.uint8), where=np.repeat(background[..., np.newaxis], 3, axis=-1))
 
 
-def toggleHideColors():
-    global hidden, shown_img
-    hidden = not hidden
+def toggleBackgroundColor():
+    global background_inverted
+    background_inverted = not background_inverted
+    applyBackground()
+
+
+def applyHidden():
+    global shown_img
     if hidden:
-        shown_img = orig_img
+        shown_img = orig_img.copy()
     else:
         applyLayers()
+
+
+def toggleHideColors(setVal=0):
+    global hidden
+    hidden = not hidden
+    if setVal == 1:
+        hidden = True
+    elif setVal == 2:
+        hidden = False
+    applyHidden()
+    applyBackground()
 
 
 def applyLayers():
@@ -281,7 +297,7 @@ def createPixelOrderWindow(in_img, layers_in, unscaled):
             contours = createContoursWindow(unscaled, orig_img)
             if contours is not None:
                 np.copyto(layers, current_layer, where=contours)
-                applyLayers()
+                toggleHideColors(2)
             cv2.namedWindow(title, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(title, 600, 800)
             resetCursor()

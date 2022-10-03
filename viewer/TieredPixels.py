@@ -3,7 +3,7 @@ import numpy as np
 
 from Contours import createContoursWindow
 
-title = "Manage Pixel Drawing Order"
+title = "Pixel Priority"
 colors = [
     [255,   0,   0],
     [  0, 255,   0],
@@ -187,14 +187,13 @@ def addHeader():
     res = cv2.copyMakeBorder(shown_img, 9, 0, 0, 0, cv2.BORDER_CONSTANT, value=[255, 255, 255])
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     s = 0.3
-    color = [255, 255, 255] 
-    # thickness = cv2.FILLED
+    color = [255, 255, 255]
     pos = [0, 7]
     txt_size = int(orig_img.shape[1] / 6) # cv2.getTextSize(text, font_face, s, thickness)
     for i in range(len(colors)):
         text = str(i + 1)
         res[:9, pos[0]:pos[0] + txt_size, :3] = colors[i]
-        cv2.putText(res, text, pos, font_face, s, color, 1, 2)
+        cv2.putText(res, text, tuple(pos), font_face, s, color, 1, 2)
         pos[0] += txt_size
     return res
 
@@ -202,6 +201,24 @@ def addHeader():
 def resetCursor():
     global mouse_x, mouse_y
     mouse_x, mouse_y = 0, 0
+
+
+def printHelpMessage():
+    print("This tool let's you define the order in which your pixels will be drawn.")
+    print("That can be used to ensure drawing certain parts of your image first, like its borders or distinctive elements.")
+    print("Currently you have six priorities to choose from. Later in the drawer, all pixels of the same priority will be treated equally (i.e. random selection).")
+    print("Pixels without any priority (default) will be drawn last.")
+    print("There's also an advanced editor for automatic edge detection. But be warned, it might be overwhelming/confusing.")
+    print("\n Manuals:")
+    print(" h       This help message")
+    print(" 1-6     Current Pixel Priority. 1 will be drawn first, 6 last")
+    print(" e       Erase-Tool, resets priority")
+    print(" +, -    Increase/Decrease pen width")
+    print(" b       Change background color")
+    print(" v       Show/hide all priorities")
+    print(" c       Open advanced contours editor. Results will be applied to current pixel priority (and previous priority will be overwritten!)")
+    print(" q, t    exit and apply changes to current priority\n")
+    print(" ESC     exit and discard changes")
 
 
 def createPixelOrderWindow(in_img, layers_in, unscaled):
@@ -213,7 +230,10 @@ def createPixelOrderWindow(in_img, layers_in, unscaled):
     cv2.setMouseCallback(title, onMouseEvent)
     edited_img = orig_img.copy()
 
-    done = False
+    print("\n\n------ Entering Pixel Priority Editor -------")
+    print("Press h to show manuals.")
+
+    done = 0
     erase = False
     hidden = False
     background_inverted = False
@@ -222,14 +242,18 @@ def createPixelOrderWindow(in_img, layers_in, unscaled):
     current_cursor = 0
     resetCursor()
     applyLayers()
-    while not done:
+    while done == 0:
         c = cv2.waitKey(1)
         cv2.imshow(title, addHeader())
         if c == -1:
             continue
         k = chr(c)
-        if k == 'q' or k == 't':
-            done = True
+        if c == 27:
+            done = 1
+        elif k == 'q' or k == 't':
+            done = 2
+        elif k == 'h':
+            printHelpMessage()
         elif c > 48 and c < 55:
             if drawing:
                 continue
@@ -255,11 +279,16 @@ def createPixelOrderWindow(in_img, layers_in, unscaled):
         elif k == 'c':
             cv2.destroyWindow(title)
             contours = createContoursWindow(unscaled, orig_img)
-            np.copyto(layers, current_layer, where=contours)
-            applyLayers()
+            if contours is not None:
+                np.copyto(layers, current_layer, where=contours)
+                applyLayers()
             cv2.namedWindow(title, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(title, 600, 800)
             resetCursor()
             cv2.setMouseCallback(title, onMouseEvent)
     cv2.destroyWindow(title)
-    return layers
+
+    if done == 1:
+        return None
+    elif done == 2:
+        return layers

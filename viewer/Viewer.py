@@ -5,7 +5,6 @@ import configparser
 import numpy as np
 import json
 
-from Contours import createContoursWindow
 from TieredPixels import createPixelOrderWindow
 
 
@@ -259,7 +258,7 @@ def printHelp():
     print(" w, a, s, d      Move image around")
     print(" +, -            Scale image")
     print(" i               Loop through interpolation modes used in image scaling")
-    print(" v               Show/hide image. Simulates drawing when shown (including drawing order).")
+    print(" v               Show/hide image. Simulates drawing when shown (also respects pixel priority, see 't')")
     print(" o               Enable/disable 'overpaint'. If not active, 'wrong' pixels (by others) are drawn above your image. This could help you selecting an empty spot.")
     print(" p               Enable/disable progress filter. Used to highlight right and wrong pixels which could be hard to detect otherwise.")
     print(" c               Counts how many pixels are needed to draw your image")
@@ -269,7 +268,7 @@ def printHelp():
     print(" e               Export your current image to graffiti.json")
     print(" x               Filter by execution layer address")
     print(" b               Change background color")
-    print(" t               Open pixel drawing order dialog")
+    print(" t               Open pixel drawing order (priority) dialog")
     print(" q, ESC          Close application")
 
 def eth1addresses():
@@ -402,8 +401,9 @@ def advanceAnimationMask():
 def createOrderDialog():
     global layers
     cv2.destroyWindow(title)
-    layers = createPixelOrderWindow(img, layers, orig_img)
-    # createContoursWindow(orig_img, img)
+    res = createPixelOrderWindow(img, layers, orig_img)
+    if res is not None:
+        layers = res
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 1000, 1000)
     cv2.setMouseCallback(title, onMouseEvent)

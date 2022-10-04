@@ -192,7 +192,7 @@ func getJson(url string, target interface{}) error {
 func fetchGraffitiWall() bool {
 	newWallCache := &GraffitiWall{}
 
-	err := getJson(BeaconURL, newWallCache)
+	err := getJson(BeaconURL + "/graffitiwall", newWallCache)
 	if err != nil {
 		log.Printf("WARNING: Error fetching beaconcha.in graffitiwall: %s\n", err)
 		return false
@@ -271,11 +271,11 @@ func init() {
 
 	switch Network {
 	case "mainnet":
-		BeaconURL = "https://beaconcha.in/api/v1/graffitiwall"
+		BeaconURL = "https://beaconcha.in/api/v1"
 	case "gnosis":
-		BeaconURL = "https://beacon.gnosischain.com/api/v1/graffitiwall"
+		BeaconURL = "https://beacon.gnosischain.com/api/v1"
 	default:
-		BeaconURL = fmt.Sprintf("https://%s.beaconcha.in/api/v1/graffitiwall", Network)
+		BeaconURL = fmt.Sprintf("https://%s.beaconcha.in/api/v1", Network)
 	}
 
 	// Setup caching http client
@@ -295,7 +295,7 @@ func init() {
 					log.Fatalf("ERROR: Supplied validator pubkey input %s is not something we can handle at the moment, expecting 0x<40 hex chars>, e.g. 0xD33526068D116cE69F19A9ee46F0bd304F21A51f\n", val)
 				}
 				validators := &ValidatorLookup{}
-				lookupURL := fmt.Sprintf("https://beaconcha.in/api/v1/validator/eth1/%s", val)
+				lookupURL := fmt.Sprintf(BeaconURL + "/validator/eth1/%s", val)
 				log.Printf("My Validator supplied pubkey %s, looking up...", val)
 				err := getJson(lookupURL, &validators)
 				if err != nil {

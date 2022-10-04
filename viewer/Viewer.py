@@ -5,12 +5,19 @@ import configparser
 import numpy as np
 import json
 
+from TieredPixels import createPixelOrderWindow
+
+
+white = [255, 255, 255]
+black = [0, 0, 0]
+
+background_color = white
 
 def getPixelWallData():
     try:
         page = requests.get(baseUrl + "graffitiwall")
     except requests.exceptions.RequestException as _:
-        print("[getPixelWallData] Can't reach graffitiwall at " + url)
+        print("[getPixelWallData] Can't reach graffitiwall at " + baseUrl)
         return
     if page.status_code != 200:
         print("[getPixelWallData] Error fetching wall")
@@ -24,14 +31,8 @@ def getPixelWallData():
 
 
 def saveSettings():
-    if cfg['xres'] == 'original':
-        config['GraffitiConfig']['xres'] = 'original'
-    else:
-        config['GraffitiConfig']['xres'] = str(x_res)
-    if cfg['yres'] == 'original':
-        config['GraffitiConfig']['yres'] = 'original'
-    else:
-        config['GraffitiConfig']['yres'] = str(y_res)
+    config['GraffitiConfig']['xres'] = str(x_res)
+    config['GraffitiConfig']['yres'] = str(y_res)
     config['GraffitiConfig']['scale'] = str(scale)
     config['GraffitiConfig']['xoffset'] = str(x_offset)
     config['GraffitiConfig']['yoffset'] = str(y_offset)
@@ -67,16 +68,19 @@ def paintWall():
     global indices
     if eth1FilterEnabled and len(indices) == 0:
         loadIndices()
+    if wall_data == None:
+        return
     for pixel in wall_data:
         if eth1FilterEnabled and pixel["validator"] not in indices:
-            new_pixel = [255, 255, 255, NOT_DRAWN]
+            new_pixel = background_color + [NOT_DRAWN]
         else:
             new_pixel = tuple(int(pixel["color"][i:i + 2], 16) for i in (4, 2, 0))  # opencv wants pixels in BGR
             new_pixel += (DRAWN,)
         wall[pixel["y"]][pixel["x"]] = new_pixel
 
+
 def paintImage():
-    global wall, img, need_to_set, visible, correct_pixels, wall_part, white_pixels_drawn
+    global wall, img, need_to_set, visible, correct_pixels, bg_pixels_drawn, bg_img
     if hide:
         return
     visible = img[..., 3] != 0
@@ -84,24 +88,27 @@ def paintImage():
     # This looks too complicated. If you know how to do this better, feel free to improve
     same = np.all(img[..., :3] == wall_part[..., :3], axis=-1)  # correct pixels set to true, but doesn't filter transparent
     correct_pixels = same + ~visible
+    need_to_set = ~(correct_pixels + ~show_animation_mask)
+    need_to_set_mask = np.repeat(need_to_set[..., np.newaxis], 3, axis=2)
     need_to_set = ~correct_pixels
-    mask2 = np.repeat(need_to_set[..., np.newaxis], 4, axis=2)
-    white_img = np.all(img[..., :3] == [255, 255, 255], axis=-1)
-    white_drawn = np.all(wall_part[..., :4] == [255, 255, 255, 1], axis=-1)
-    white_pixels_drawn = np.sum(white_img & white_drawn & visible)
+    bg_img = np.all(img[..., :3] == white, axis=-1)
+    bg_drawn = np.all(wall_part[..., 3] == DRAWN, where=bg_img)
+    bg_pixels_drawn = np.sum(bg_img & bg_drawn & visible)
     if not progressFilterEnabled:
-        np.copyto(wall_part, img, where=mask2)
+        np.copyto(wall_part[..., :3], img[..., :3], where=need_to_set_mask)
     else:
-        np.copyto(wall_part, np.array([0, 0, 255, 255], dtype=np.uint8), where=mask2)
+        np.copyto(wall_part[..., :3], np.array([0, 0, 255], dtype=np.uint8), where=need_to_set_mask)
         need_to_not_set = ~(~same + ~visible)
-        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 4, axis=2)
+        mask3 = np.repeat(need_to_not_set[..., np.newaxis], 3, axis=2)
         # this now includes white pixels if they're visible (alpha > 0)
         # depending on your input image the output may looks unexpected, but should be correct
-        np.copyto(wall_part, np.array([0, 255, 0, 255], dtype=np.uint8), where=mask3)
+        np.copyto(wall_part[..., :3], np.array([0, 255, 0], dtype=np.uint8), where=mask3)
 
 
 def getPixelInfo(x, y):
     # very inefficient, #TODO transform wall_data into map or something
+    if wall_data == None:
+        return ""
     for pixel in wall_data:
         if pixel['y'] == y and pixel['x'] == x:
             info = ""
@@ -116,9 +123,10 @@ def getPixelInfo(x, y):
 
 NOT_DRAWN = 0
 DRAWN = 1
+
 def repaint():
     global wall, wall2
-    wall = np.full((1000, 1000, 4), [255, 255, 255, NOT_DRAWN], np.uint8)
+    wall = np.full((1000, 1000, 4), background_color + [NOT_DRAWN], np.uint8)
     if overpaint or progressFilterEnabled:
         paintWall()
         paintImage()
@@ -142,6 +150,7 @@ def changeSize(scale_percent=0):
     y_res = height
     scale += int(scale_percent * scale / 100)
     img = cv2.resize(orig_img, dsize=(x_res, y_res), interpolation=interpolation_modes[int_mode])
+    updateAnimation(reset=True)
     repaint()
 
 
@@ -172,9 +181,23 @@ def toggleOverpaint():
     repaint()
 
 
+def updateAnimation(reset=False):
+    global show_animation_mask, pixels_per_frame, animation_done
+    if reset:
+        show_animation_mask = np.full_like(img, True, shape=(img.shape[:2]), dtype=np.bool8)
+        pixels_per_frame = 0
+        animation_done = True
+        return
+    wall_part = wall[y_offset: y_offset + y_res, x_offset: x_offset + x_res]
+    show_animation_mask = np.all(img[..., :3] == wall_part[..., :3], axis=-1)
+    pixels_per_frame = int(np.sum(show_animation_mask == False) / 100)
+    animation_done = False
+
+
 def toggleHide():
     global hide
     hide = not hide
+    updateAnimation()
     repaint()
 
 
@@ -187,7 +210,7 @@ def toggleProgressFilter():
 def draw_label(text, pos):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     s = 0.4
-    color = (0, 0, 0)  # black
+    color = black if background_color is white else white 
     thickness = cv2.FILLED
     txt_size = cv2.getTextSize(text, font_face, s, thickness)
 
@@ -229,15 +252,17 @@ def printHelp():
     print(" w, a, s, d      Move image around")
     print(" +, -            Scale image")
     print(" i               Loop through interpolation modes used in image scaling")
-    print(" v               Show/hide image")
+    print(" v               Show/hide image. Simulates drawing when shown (also respects pixel priority, see 't')")
     print(" o               Enable/disable 'overpaint'. If not active, 'wrong' pixels (by others) are drawn above your image. This could help you selecting an empty spot.")
     print(" p               Enable/disable progress filter. Used to highlight right and wrong pixels which could be hard to detect otherwise.")
-    print(" c               Counts how many pixels are needed to draw your image.")
+    print(" c               Counts how many pixels are needed to draw your image")
     print(" 1               List execution layer addresses of drawing participants for your image (eg. for POAPs)")
     print(" 2               List validator addresses of drawing participants for your image")
     print(" f               Save your current image configuration to settings.ini")
     print(" e               Export your current image to graffiti.json")
     print(" x               Filter by execution layer address")
+    print(" b               Change background color")
+    print(" t               Open pixel drawing order (priority) dialog")
     print(" q, ESC          Close application")
 
 def eth1addresses():
@@ -289,15 +314,21 @@ def toggleAddressFilter():
     repaint()
 
 
+def toggleBackgroundColor():
+    global background_color
+    background_color = black if background_color is white else white
+    repaint()
+
+
 def countPixels():
-    white = np.all(img[..., :3] == [255, 255, 255], axis=-1)
+    white_img_pixels = np.all(img[..., :3] == white, axis=-1)
     left_pixels = np.sum(need_to_set)
-    white_pixels = np.sum(white & visible)
+    white_pixels = np.sum(white_img_pixels & visible)
     total_pixels = np.sum(visible)
     right_pixels = np.sum(correct_pixels) - np.sum(~visible)
     print("Total pixels:   " + str(total_pixels) + " (+" + str(x_res * y_res - total_pixels) + " transparent)")
-    print("Correct pixels: " + str(right_pixels), "(" + str(white_pixels), "of those are white, of which", str(white_pixels_drawn), "have been drawn anyways)")
-    print("Pixels left:    " + str(left_pixels) + "\n\n")
+    print("Correct pixels: " + str(right_pixels), "/ {:.2f}%".format(right_pixels / total_pixels * 100), "(" + str(white_pixels), "of those are white, of which", str(bg_pixels_drawn), "have been drawn anyways)")
+    print("Pixels left:    " + str(left_pixels), "/ {:.2f}%".format(100 - right_pixels / total_pixels * 100), "\n\n")
 
 
 def export():
@@ -312,20 +343,80 @@ def export():
                 color = format(pixel[2], '02x')
                 color += format(pixel[1], '02x')
                 color += format(pixel[0], '02x')
-                out_json.append({"x": j + x_offset, "y": i + y_offset, "color": color})
+                pixel_json = {"x": j + x_offset, "y": i + y_offset, "color": color}
+                if (int(layers[i, j]) >= 0):
+                    pixel_json["prio"] = int(layers[i, j])
+                out_json.append(pixel_json)
     with open('graffiti.json', 'w') as graffiti_file:
         graffiti_file.write(json.dumps(out_json))
     print("exported " + str(len(out_json)) + " pixels")
 
 
-def show(title):
+def advanceAnimationMask():
+    global animation_done
+    not_same_indices = np.argwhere(show_animation_mask == False)
+    new_pixels_shown = pixels_per_frame
+    if pixels_per_frame > not_same_indices.shape[0]:
+        new_pixels_shown = not_same_indices.shape[0]
+    if new_pixels_shown > 0:
+        indices = []
+        found = 0
+        # select random pixels in order
+        for i in range(6):
+            current_layer_todo = (layers == i) & ~show_animation_mask
+            current_layer_indices = np.argwhere(current_layer_todo == True)
+            if len(current_layer_indices) == 0:
+                continue
+            current_layer_new_pixels = min(new_pixels_shown - found, len(current_layer_indices))
+            current_layer_selected = np.random.choice(len(current_layer_indices), current_layer_new_pixels, replace=False)
+            for j in current_layer_selected:
+                indices += [current_layer_indices[j].tolist()]
+            found += current_layer_new_pixels
+            if found == new_pixels_shown:
+                break
+        
+        # select from unmarked if needed
+        if new_pixels_shown - found > 0:
+            leftover_todo = (layers == -1) & ~show_animation_mask
+            leftover_indices = np.argwhere(leftover_todo == True)
+            leftover_new_pixels = min(new_pixels_shown - found, len(leftover_indices))
+            leftover_selected = np.random.choice(len(leftover_indices), leftover_new_pixels, replace=False)
+            for j in leftover_selected:
+                indices += [leftover_indices[j].tolist()]        
+        
+        # apply indices mask
+        for i in indices:
+            show_animation_mask[i[0], i[1]] = True
+
+    elif not animation_done:
+        animation_done = True
+
+
+def createOrderDialog():
+    global layers
+    cv2.destroyWindow(title)
+    res = createPixelOrderWindow(img, layers, orig_img)
+    if res is not None:
+        layers = res
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(title, 1000, 1000)
+    cv2.setMouseCallback(title, onMouseEvent)
+
+
+def show():
+    global orig_img
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(title, 1000, 1000)
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
     print('Config loaded! Press "h" while the viewer window is active to show manuals.')
+    repaint()
     while not done:
         cv2.imshow(title, wall2)
-        c = cv2.waitKey(1)
+        if not animation_done:
+            advanceAnimationMask()
+            repaint()
+        c = cv2.waitKey(50)
         if c == -1:
             continue
         k = chr(c)
@@ -379,6 +470,10 @@ def show(title):
             saveSettings()
         elif k == 'q' or c == 27:  # esc-key
             done = True
+        elif k == 't':
+            createOrderDialog()
+        elif k == 'b':
+            toggleBackgroundColor()
     cv2.destroyAllWindows()
 
 
@@ -390,6 +485,7 @@ interpolation_modes = {
     "lanc4": cv2.INTER_LANCZOS4,
     "lin_ex": cv2.INTER_LINEAR_EXACT,
 }
+
 
 if __name__ == "__main__":
     print("Loading your image config from settings.ini... Please wait")
@@ -403,7 +499,7 @@ if __name__ == "__main__":
     if orig_img is None:
         print("Can't load image " + file)
         exit(1)
-    y_res, x_res, channels = orig_img.shape
+    y_res, x_res, _ = orig_img.shape
     scale = int(cfg['scale'])
     x_res = int(x_res * (scale / 100))
     y_res = int(y_res * (scale / 100))
@@ -432,5 +528,10 @@ if __name__ == "__main__":
         print("unknown interpolation mode: " + cfg["interpolation"])
         exit(1)
 
+    animation_done = True
     changeSize()
-    show("Beaconcha.in Graffitiwall (" + cfg['network'] + ")")
+    show_animation_mask = np.full_like(img, True, shape=(img.shape[:2]), dtype=np.bool8)
+    pixels_per_frame = 0
+    title = "Beaconcha.in Graffitiwall (" + cfg['network'] + ")"
+    layers = np.full_like(img, -1, shape=(img.shape[:2]), dtype=np.int8)
+    show()

@@ -29,7 +29,7 @@ Enabling it is easy:
 
 
 ## Viewer
-The viewer loads the current graffitiwall as well as an image. Check out `settings.ini` to specify details. You can move it around or scale it until you found your favorite spot. Once you're done, you can save your desired configuration, so it can be picked up by the Drawer in the next step.
+The viewer loads the current graffitiwall as well as an image. Check out `settings.ini` to specify details. You can move it around or scale it until you found your favorite spot. Optionally you can also define the priority of each pixel. Once you're done, you can export your desired configuration, so it can be picked up by the Drawer in the next step.
 ### Usage:
 `python3 Viewer.py` \
 You can move, scale, hide etc. your image. Press `h` while the viewer window is active to show all options. Once you are happy, press `e` to generate your `graffiti.json`. This will be used by the drawer in the next step.

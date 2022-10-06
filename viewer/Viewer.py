@@ -12,17 +12,26 @@ white = [255, 255, 255]
 black = [0, 0, 0]
 
 background_color = white
+dragging = False
+grabbed_offset_x = 0
+grabbed_offset_y = 0
+replayTick = 0
+maxReplayTick = 0
 
 def getPixelWallData():
+    global maxReplayTick, replayTick
     try:
         page = requests.get(baseUrl + "graffitiwall")
+        block = requests.get(baseUrl + "block/latest")
     except requests.exceptions.RequestException as _:
         print("[getPixelWallData] Can't reach graffitiwall at " + baseUrl)
         return
-    if page.status_code != 200:
+    if page.status_code != 200 or block.status_code != 200:
         print("[getPixelWallData] Error fetching wall")
         return
     w = page.json()["data"]
+    maxReplayTick = block.json()["data"]["slot"]
+    replayTick = maxReplayTick
     if type(w) is dict: # if only one pixel
         l = list()
         l.append(w)
@@ -70,7 +79,10 @@ def paintWall():
         loadIndices()
     if wall_data == None:
         return
+    # replayTick
     for pixel in wall_data:
+        if pixel["slot"] > replayTick:
+            continue
         if eth1FilterEnabled and pixel["validator"] not in indices:
             new_pixel = background_color + [NOT_DRAWN]
         else:
@@ -220,12 +232,22 @@ def draw_label(text, pos):
 
 
 def onMouseEvent(event, x, y, flags, param):
-    global wall2
+    global wall2, dragging, grabbed_offset_x, grabbed_offset_y
     if event == cv2.EVENT_MOUSEMOVE:
         wall2 = wall.copy()
         pixel_string = getPixelInfo(x, y)
-        if pixel_string != "":
+        if dragging:
+            changePos(x - x_offset - grabbed_offset_x, y - y_offset - grabbed_offset_y)
+        elif pixel_string != "":
             draw_label(pixel_string, (x, y))
+    elif event == cv2.EVENT_LBUTTONDOWN:
+        if x > x_offset and x < x_offset + x_res and \
+           y > y_offset and y < y_offset + y_res:
+            dragging = True
+            grabbed_offset_x = x - x_offset
+            grabbed_offset_y = y - y_offset
+    elif event == cv2.EVENT_LBUTTONUP:
+        dragging = False
 
 
 def eth2addresses():
@@ -249,7 +271,7 @@ def printHelp():
     print("   ### USAGE ###")
     print("Press buttons while the viewer window is active.")
     print(" h               This help message")
-    print(" w, a, s, d      Move image around")
+    print(" drag            Move image around")
     print(" +, -            Scale image")
     print(" i               Loop through interpolation modes used in image scaling")
     print(" v               Show/hide image. Simulates drawing when shown (also respects pixel priority, see 't')")
@@ -392,6 +414,15 @@ def advanceAnimationMask():
         animation_done = True
 
 
+replayTickChanged = False
+
+
+def onReplayChange(value):
+    global replayTick, replayTickChanged
+    replayTick = value
+    replayTickChanged = True
+
+
 def createOrderDialog():
     global layers
     cv2.destroyWindow(title)
@@ -404,19 +435,22 @@ def createOrderDialog():
 
 
 def show():
-    global orig_img
+    global orig_img, replayTickChanged
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 1000, 1000)
     cv2.setMouseCallback(title, onMouseEvent)
     done = False
     print('Config loaded! Press "h" while the viewer window is active to show manuals.')
     repaint()
+    cv2.createTrackbar("Slot", title, replayTick, maxReplayTick, onReplayChange)
     while not done:
         cv2.imshow(title, wall2)
         if not animation_done:
             advanceAnimationMask()
+        if replayTickChanged:
+            replayTickChanged = False
             repaint()
-        c = cv2.waitKey(50)
+        c = cv2.waitKey(10)
         if c == -1:
             continue
         k = chr(c)
@@ -424,14 +458,6 @@ def show():
             changeSize(10)
         elif k == '-':
             changeSize(-10)
-        elif k == 'w':
-            changePos(0, -10)
-        elif k == 'a':
-            changePos(-10, 0)
-        elif k == 's':
-            changePos(0, 10)
-        elif k == 'd':
-            changePos(10, 0)
         elif k == 'h':
             printHelp()
         elif k == 'o':

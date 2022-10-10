@@ -559,7 +559,8 @@ func getGraffitiTemplate() string {
 	case "lighthouse":
 		template = `default: %s`
 	case "prysm":
-		template = `ordered:` + "\n" + `  - "%s"`
+		// https://docs.prylabs.network/docs/prysm-usage/graffiti-file
+		template = `default: "%s"` + "\n"
 	}
 	return template
 }

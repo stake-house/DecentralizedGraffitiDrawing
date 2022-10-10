@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"io"
 	"log"
 	"math"
@@ -11,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -23,6 +28,7 @@ import (
 	"github.com/gregjones/httpcache"
 	"github.com/jmcvetta/randutil"
 	"github.com/namsral/flag"
+	"github.com/nfnt/resize"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -71,6 +77,10 @@ type InputData struct {
 
 type DrawerData struct {
 	Data []DrawerPixel
+	MinX uint
+	MaxX uint
+	MinY uint
+	MaxY uint
 }
 
 // inputpixel -> drawerpixel conversion
@@ -102,16 +112,18 @@ var (
 	GraffitiPrefix  string
 	MetricsEnabled  bool
 	MetricsAddress  string
+	GrafanaDataPath string
 	MyValidators    string
 	EnergyWeighted  bool
 
 	// Internal vars
-	wallCache    *GraffitiWall
-	inputCache   *InputData
-	todoPixels   *DrawerData
-	httpClient   *http.Client
-	dataChanged  bool
-	myValidators []uint
+	wallCache     *GraffitiWall
+	inputCache    *InputData
+	todoPixels    *DrawerData
+	httpClient    *http.Client
+	dataChanged   bool
+	myValidators  []uint
+	fullWallImage *image.RGBA
 
 	// Prometheus stats
 	promRPLTotalPixels = promauto.NewGaugeVec(
@@ -189,6 +201,40 @@ func getJson(url string, target interface{}) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
+func updateGraffitiGif() error {
+	b := image.Rectangle{image.Point{int(todoPixels.MinX), int(todoPixels.MinY)}, image.Point{int(todoPixels.MaxX), int(todoPixels.MaxY)}}
+	dst := fullWallImage.SubImage(b)
+
+	// full wall
+	f, err := os.Create(GrafanaDataPath + "/wall.png")
+	if err != nil {
+		return err
+	}
+	if err := png.Encode(f, fullWallImage); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	// our image closely
+	dst = resize.Resize(1000, 0, dst, resize.NearestNeighbor).(*image.RGBA)
+	f, err = os.Create(GrafanaDataPath + "/drawnSection.png")
+	if err != nil {
+		return err
+	}
+	if err := png.Encode(f, dst); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func fetchGraffitiWall() bool {
 	newWallCache := &GraffitiWall{}
 
@@ -229,6 +275,7 @@ func init() {
 	flag.IntVar(&UpdatePixelTime, "update_pixel_time", 60, "Time between output updates")
 	flag.BoolVar(&MetricsEnabled, "metrics_enabled", true, "Enable metrics server")
 	flag.StringVar(&MetricsAddress, "metrics_address", ":9106", " Metrics listen [address]:port")
+	flag.StringVar(&GrafanaDataPath, "grafana_data_dir", "/grafana", " Output data of generated images for use in Grafana. Only used when metrics server is enabled")
 	flag.BoolVar(&EnergyWeighted, "energy_weighted", true, "When enabled use a weighted random based on pixel 'energy'. Whiter pixels get slightly less weight than darker pixels.")
 	flag.Parse()
 
@@ -350,6 +397,14 @@ func init() {
 			log.Printf("WARNING: Could not write graffiti-file [%s] -- your VC might refuse to start without it!", OutputFile)
 		}
 	}
+
+	if MetricsEnabled {
+		// TODO also check if GrafanaDataPath is valid
+		fullWallImage = image.NewRGBA(image.Rectangle{image.Point{}, image.Point{1000, 1000}})
+		bgcolor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+		bounds := fullWallImage.Bounds()
+		draw.Draw(fullWallImage, bounds, &image.Uniform{bgcolor}, bounds.Min, draw.Src)
+	}
 }
 
 func isMyValidator(index uint) bool {
@@ -412,11 +467,19 @@ func updateGraffiti() bool {
 		curSlot := guessCurrentSlot()
 		pixelsPerDayGlobal := 0
 		wallCheck := make(map[string]*GraffitiWallPixel)
+		// TODO only do this if dataChanged
 		for _, p := range wallCache.Data {
 			pixel := p // get a unique pointer, thanks go
 			wallCheck[fmt.Sprintf("%03d:%03d", pixel.X, pixel.Y)] = &pixel
 			if pixel.Slot >= (curSlot - 7200) {
 				pixelsPerDayGlobal++
+			}
+			if MetricsEnabled {
+				cr, _ := strconv.ParseUint(pixel.Color[0:2], 16, 0)
+				cg, _ := strconv.ParseUint(pixel.Color[2:4], 16, 0)
+				cb, _ := strconv.ParseUint(pixel.Color[4:6], 16, 0)
+				pcol := color.RGBA{R: uint8(cr), G: uint8(cg), B: uint8(cb), A: 255}
+				fullWallImage.Set(int(pixel.X), int(pixel.Y), pcol)
 			}
 		}
 
@@ -428,6 +491,10 @@ func updateGraffiti() bool {
 		todoWhite := 0
 		myPixels := make(map[string]uint) // val idx -> pixels
 		pcre := regexp.MustCompile(`^[a-f0-9]{6}$`)
+		todoPixels.MinX = 1000
+		todoPixels.MinY = 1000
+		todoPixels.MaxX = 0
+		todoPixels.MaxY = 0
 		for _, ipixel := range inputCache.Data {
 			// Is this ipixel sane?
 			ipixel.Color = strings.TrimSpace(strings.ToLower(ipixel.Color))
@@ -467,6 +534,18 @@ func updateGraffiti() bool {
 				}
 				todoPixels.Data = append(todoPixels.Data, ipixel.toDrawerPixel())
 			}
+			if ipixel.X > todoPixels.MaxX {
+				todoPixels.MaxX = ipixel.X
+			}
+			if ipixel.Y > todoPixels.MaxY {
+				todoPixels.MaxY = ipixel.Y
+			}
+			if ipixel.X < todoPixels.MinX {
+				todoPixels.MinX = ipixel.X
+			}
+			if ipixel.Y < todoPixels.MinY {
+				todoPixels.MinY = ipixel.Y
+			}
 		}
 		if MetricsEnabled {
 			promRPLTotalPixels.WithLabelValues("Normal").Set(float64(len(inputCache.Data) - totalWhite))
@@ -478,6 +557,9 @@ func updateGraffiti() bool {
 			promRPLDrawSpeed.WithLabelValues("Global").Set(float64(pixelsPerDayGlobal))
 			for vIdx, val := range myPixels {
 				promRPLMyPixels.WithLabelValues(vIdx).Set(float64(val))
+			}
+			if err := updateGraffitiGif(); err != nil {
+				log.Printf("ERROR: Couldn't update images: %s", err)
 			}
 		}
 		log.Printf("STATUS: TODO %d pixel(s) [%d wrong to fix], %d already painted, %d skipped/ignored since they're white!\n", len(todoPixels.Data), wrong, completed, skipped)

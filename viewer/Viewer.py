@@ -447,6 +447,7 @@ def show():
         cv2.imshow(title, wall2)
         if not animation_done:
             advanceAnimationMask()
+            repaint()
         if replayTickChanged:
             replayTickChanged = False
             repaint()

@@ -21,14 +21,14 @@ maxReplayTick = 0
 def getPixelWallData():
     global maxReplayTick, replayTick
     try:
-        page = requests.get(baseUrl + "graffitiwall")
+        page = requests.get(baseUrl + "graffitiwall?startSlot=0")
         block = requests.get(baseUrl + "block/latest")
     except requests.exceptions.RequestException as _:
         print("[getPixelWallData] Can't reach graffitiwall at " + baseUrl)
-        return
+        exit(1)
     if page.status_code != 200 or block.status_code != 200:
         print("[getPixelWallData] Error fetching wall")
-        return
+        exit(1)
     w = page.json()["data"]
     maxReplayTick = block.json()["data"]["slot"]
     replayTick = maxReplayTick

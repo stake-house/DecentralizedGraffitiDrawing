@@ -192,7 +192,7 @@ func getJson(url string, target interface{}) error {
 func fetchGraffitiWall() bool {
 	newWallCache := &GraffitiWall{}
 
-	err := getJson(BeaconURL + "/graffitiwall", newWallCache)
+	err := getJson(BeaconURL + "/graffitiwall?startSlot=0", newWallCache)
 	if err != nil {
 		log.Printf("WARNING: Error fetching beaconcha.in graffitiwall: %s\n", err)
 		return false
